@@ -18,6 +18,7 @@ def create_ocr_engine(settings: Settings) -> OCREngine:
             det_model_dir=str(settings.paddleocr_det_model_dir),
             rec_model_dir=str(settings.paddleocr_rec_model_dir),
             textline_orientation_model_dir=str(settings.paddleocr_textline_orientation_model_dir),
+            pdx_cache_home=str(settings.paddle_pdx_cache_home),
         )
     if settings.ocr_engine == "easyocr":
         return EasyOCREngine()

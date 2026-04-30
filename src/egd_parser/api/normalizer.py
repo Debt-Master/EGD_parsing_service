@@ -38,15 +38,32 @@ def _normalize_departure(dep: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _build_registration_status_index(page_2: dict[str, Any]) -> dict[str, str]:
+    statuses: dict[str, str] = {}
+    for reg_type, default_status in [
+        ("registered_persons_constantly", "registered"),
+        ("registered_persons_temporary", "registered"),
+    ]:
+        block = page_2.get(reg_type, {})
+        for person in block.get("persons", []):
+            full_name = person.get("full_name")
+            if not full_name:
+                continue
+            statuses[full_name] = person.get("registration_status") or default_status
+    return statuses
+
+
 def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
     persons = []
     page_1 = data.get("page_1", {})
     page_2 = data.get("page_2", {})
+    registration_statuses = _build_registration_status_index(page_2)
 
     passport = page_1.get("passport", {})
     for i, owner in enumerate(page_1.get("owners", [])):
         person = {
             "role": "owner",
+            "registration_status": registration_statuses.get(owner.get("full_name"), "unknown"),
             "full_name": owner.get("full_name"),
             **_split_name(owner.get("full_name")),
             "birthday_date": None,
@@ -59,6 +76,7 @@ def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
     if page_1.get("primary_tenant"):
         persons.append({
             "role": "tenant",
+            "registration_status": registration_statuses.get(page_1["primary_tenant"], "unknown"),
             "full_name": page_1["primary_tenant"],
             **_split_name(page_1["primary_tenant"]),
             "birthday_date": None,
@@ -75,6 +93,7 @@ def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
         for p in block.get("persons", []):
             persons.append({
                 "role": role,
+                "registration_status": p.get("registration_status") or "registered",
                 "full_name": p.get("full_name"),
                 **_split_name(p.get("full_name")),
                 "birthday_date": p.get("birthday_date"),

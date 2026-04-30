@@ -43,6 +43,11 @@
     "flags": ["IGNORECASE"]
   },
   {
+    "pattern": "ОВД\\s*\\\"?Марьи-\\s*ОВД\\s+МО\\s+[HН][oоOО]\\\"?\\s+[rг]op\\s*\\.?\\s*Москвы",
+    "replacement": "ОВД \"Марьино\" гор. Москвы",
+    "flags": ["IGNORECASE"]
+  },
+  {
     "pattern": ",\\s*выдан\\s+\\d{2},\\s*выдан",
     "replacement": ", выдан",
     "flags": ["IGNORECASE"]

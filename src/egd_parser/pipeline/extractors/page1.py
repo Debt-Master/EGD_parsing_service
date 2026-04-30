@@ -97,6 +97,10 @@ def extract_document_date(page: OCRPageResult) -> str | None:
 
 def extract_passport_data(text: str) -> dict:
     all_lines = cleaned_lines(text)
+    start_index = find_line_index(all_lines, ["паспортные", "данные"])
+    if start_index == -1:
+        return {}
+
     lines = slice_lines_between_markers(
         text,
         start_markers=[["паспортные", "данные"]],
@@ -105,7 +109,6 @@ def extract_passport_data(text: str) -> dict:
     if not lines:
         return {}
 
-    start_index = find_line_index(all_lines, ["паспортные", "данные"])
     end_index = find_line_index(all_lines, ["сведения", "ранее", "выданном", "паспорте"])
     window = all_lines[start_index + 1 : end_index if end_index != -1 else start_index + 8]
     current_lines = take_current_passport_lines(window)
@@ -130,7 +133,7 @@ def extract_passport_data(text: str) -> dict:
 
     result = {
         "raw": raw,
-        "document_type": generic_document.get("document_type") or document_type,
+        "document_type": document_type or generic_document.get("document_type"),
         "series": generic_document.get("series") or (f"{series_number_match.group(1)} {series_number_match.group(2)}" if series_number_match else None),
         "number": generic_document.get("number") or (series_number_match.group(3) if series_number_match else None),
         "issued_by": generic_document.get("issued_by") or issued_by,
@@ -170,6 +173,8 @@ def extract_property_address(page: OCRPageResult) -> dict:
             ["жилого", "помещения"],
         )
     end_index = find_line_index(all_lines, ["прежнее", "наименование", "адреса"])
+    if end_index != -1 and address_anchor > end_index:
+        address_anchor = -1
     if address_anchor != -1:
         lines = all_lines[address_anchor + 1 : end_index if end_index != -1 else address_anchor + 10]
     else:
@@ -355,6 +360,22 @@ def extract_owners(text: str, settlement_type: str | None = None) -> list[dict]:
     if not lines:
         return owners
 
+    for line in lines:
+        match = re.match(
+            r"^(?P<full_name>[А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё-]+){2})\s+(?P<share>.+)$",
+            line,
+        )
+        if match and is_share_line(match.group("share")):
+            owners.append(
+                {
+                    "full_name": match.group("full_name"),
+                    "ownership_share": normalize_share(match.group("share")),
+                }
+            )
+
+    if owners:
+        return owners
+
     names = [line for line in lines if is_full_name(line)]
     shares = [normalize_share(line) for line in lines if is_share_line(line)]
 
@@ -495,6 +516,7 @@ def normalize_street(value: str) -> str:
     street = re.sub(r"^ul\.\s+", "ул. ", street, flags=re.IGNORECASE)
     street = re.sub(r"^uл\.\s+", "ул. ", street, flags=re.IGNORECASE)
     street = street.rstrip(":;,")
+    street = re.split(r"\b(?:дом|корп\.?|строение|кв\.?)\b", street, maxsplit=1, flags=re.IGNORECASE)[0].strip(" ,;:")
     street = re.sub(r"\bул\s+\.", "ул.", street, flags=re.IGNORECASE)
     street = re.sub(r"\bбульв\.?\b", "бульвар", street, flags=re.IGNORECASE)
     street = re.sub(r"^ул\.\s+(.+?)\s+бульвар$", r"б-р \1", street, flags=re.IGNORECASE)

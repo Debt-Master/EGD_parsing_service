@@ -78,7 +78,7 @@ def test_extract_passport_data_from_sample_text() -> None:
     result = extract_page1([OCRPageResult(page_number=1, text=text)])
 
     assert result["page_1"]["passport"] == {
-        "raw": "паспорт РФ 45 23 998632 выдан ГУ МВД России по г. Москкве 30.01.2024",
+        "raw": "паспорт РФ 45 23 998632 выдан ГУ МВД России по г. Москве 30.01.2024",
         "document_type": "паспорт РФ",
         "series": "45 23",
         "number": "998632",

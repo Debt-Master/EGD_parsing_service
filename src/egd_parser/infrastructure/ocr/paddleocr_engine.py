@@ -21,6 +21,7 @@ class PaddleOCREngine(OCREngine):
         det_model_dir: str | None = None,
         rec_model_dir: str | None = None,
         textline_orientation_model_dir: str | None = None,
+        pdx_cache_home: str | None = None,
     ) -> None:
         self._reader = None
         self.language = language
@@ -32,6 +33,7 @@ class PaddleOCREngine(OCREngine):
         self.det_model_dir = det_model_dir
         self.rec_model_dir = rec_model_dir
         self.textline_orientation_model_dir = textline_orientation_model_dir
+        self.pdx_cache_home = pdx_cache_home
 
     def recognize(self, pages: list[PageImage]) -> list[OCRPageResult]:
         reader = self._get_reader()
@@ -96,7 +98,10 @@ class PaddleOCREngine(OCREngine):
             if self.base_dir:
                 model_base_dir = Path(self.base_dir)
                 model_base_dir.mkdir(parents=True, exist_ok=True)
-                os.environ.setdefault("PADDLE_PDX_CACHE_HOME", str(model_base_dir / "pdx-cache"))
+                os.environ.setdefault(
+                    "PADDLE_PDX_CACHE_HOME",
+                    self.pdx_cache_home or str(model_base_dir / "pdx-cache"),
+                )
                 os.environ.setdefault("PADDLE_OCR_BASE_DIR", str(model_base_dir / "models"))
                 os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 

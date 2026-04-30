@@ -9,8 +9,6 @@ from egd_parser.pipeline.extractors.page2 import extract_page2
 from egd_parser.pipeline.extractors.page2_row_ocr import apply_row_reocr_fallback
 from egd_parser.pipeline.extractors.page2_residents import (
     annotate_without_registration,
-    build_without_registration_trace,
-    filter_out_without_registration,
 )
 from egd_parser.pipeline.layout.page_classifier import classify_pages
 from egd_parser.pipeline.normalize.dates import normalize_dates
@@ -133,10 +131,6 @@ def build_extraction_trace(public_payload: dict, raw_page2_payload: dict) -> dic
         }
         for person in public_persons
     ]
-    residents_trace["without_registration_persons"] = build_without_registration_trace(
-        raw_page2_payload.get("registered_persons_constantly", {}).get("persons", [])
-    )
-
     owners = page1.get("owners", [])
     primary_tenant = page1.get("primary_tenant")
     property_address = page1.get("property_address", {})
@@ -279,8 +273,6 @@ def reconcile_registered_persons(page1: dict, page2: dict) -> dict:
             person = merge_page1_subject_passport(page1, person)
         public_persons.append(person)
 
-    public_persons = filter_out_without_registration(public_persons)
-
     patched = dict(page2)
     patched["registered_persons_constantly"] = {
         "count": len(public_persons),
@@ -290,7 +282,9 @@ def reconcile_registered_persons(page1: dict, page2: dict) -> dict:
 
 
 def strip_internal_person_metadata(person: dict) -> dict:
-    return {key: value for key, value in person.items() if not key.startswith("__")}
+    public_person = {key: value for key, value in person.items() if not key.startswith("__")}
+    public_person["registration_status"] = person.get("__registration_status") or person.get("registration_status") or "unknown"
+    return public_person
 
 
 def merge_page1_subject_passport(page1: dict, person: dict) -> dict:
@@ -343,6 +337,8 @@ def should_prefer_page1_identity_document(page1_document: dict, resident_documen
     resident_issued_by = normalize_whitespace(str(resident_document.get("issued_by") or ""))
     if page1_score == resident_score and page1_issued_by and resident_issued_by:
         if len(page1_issued_by) > len(resident_issued_by) and page1_issued_by.startswith(resident_issued_by):
+            return True
+        if len(resident_issued_by) <= 4 and canonicalize_name(page1_issued_by).endswith(canonicalize_name(resident_issued_by)):
             return True
     return False
 
@@ -538,6 +534,7 @@ def build_public_person(person: dict) -> dict:
     return {
         "full_name": person.get("full_name"),
         "birthday_date": person.get("birthday_date"),
+        "registration_status": person.get("registration_status") or "unknown",
         "passport": build_public_passport(person.get("passport", {})),
         "departure": build_public_departure(person.get("departure", {})),
     }

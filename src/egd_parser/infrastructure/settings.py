@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     paddleocr_textline_orientation_model_dir: Path = Path(
         ".venv/paddleocr-models/models/PP-LCNet_x0_25_textline_ori_infer"
     )
+    paddle_pdx_cache_home: Path = Path(".venv/paddleocr-models/pdx-cache")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

@@ -163,6 +163,50 @@ def test_normalize_registered_passport_canonicalizes_recent_gu_mvd_and_tp_ufms_p
     assert miro["issued_by"] == "ТП №3 ОУФМС России по Московской обл. в Наро-Фоминском р-не"
 
 
+def test_parse_passport_issuer_recovers_maryino_split_across_cell_lines() -> None:
+    document = extract_current_passport_from_words(
+        [
+            make_word("паспорт", left=1180, top=100, width=120),
+            make_word("РФ", left=1310, top=100, width=40),
+            make_word("№", left=1180, top=150, width=20),
+            make_word("123456", left=1210, top=150, width=110),
+            make_word("45", left=1330, top=150, width=35),
+            make_word("02", left=1375, top=150, width=35),
+            make_word("выдан", left=1180, top=200, width=90),
+            make_word("ОВД", left=1280, top=200, width=70),
+            make_word('"Марьи-', left=1360, top=200, width=120),
+            make_word('но"', left=1180, top=250, width=50),
+            make_word("гор", left=1240, top=250, width=55),
+            make_word(".Москвы", left=1180, top=300, width=110),
+            make_word("22.01.2002", left=1180, top=350, width=150),
+        ]
+    )
+
+    assert document["issued_by"] == 'ОВД "Марьино" г. Москвы'
+
+
+def test_parse_passport_issuer_recovers_maryino_split_with_neighbor_column_noise() -> None:
+    document = extract_current_passport_from_words(
+        [
+            make_word("паспорт РФ", left=1246, top=2694, width=220),
+            make_word("паспорт №", left=1492, top=2696, width=202),
+            make_word("№ 293520 45", left=1250, top=2750, width=257),
+            make_word("508694 XI-", left=1493, top=2750, width=198),
+            make_word("05,выдан", left=1245, top=2801, width=183),
+            make_word("СБ, выдан", left=1496, top=2802, width=189),
+            make_word('ОВД"Марьи-ОВД МО', left=1248, top=2857, width=417),
+            make_word('Ho" rop', left=1244, top=2908, width=142),
+            make_word('"Марьи-', left=1493, top=2908, width=160),
+            make_word(".Москвы", left=1250, top=2965, width=158),
+            make_word('но"г.Москвы', left=1494, top=2966, width=238),
+            make_word("23.01.2003", left=1247, top=3020, width=192),
+            make_word("22.11.1996", left=1494, top=3021, width=195),
+        ]
+    )
+
+    assert document["issued_by"] == 'ОВД "Марьино" г. Москвы'
+
+
 def test_select_leftmost_continuation_cluster_discards_previous_document_column() -> None:
     words = [
         make_word("Отделом", left=1246, top=471, width=160),

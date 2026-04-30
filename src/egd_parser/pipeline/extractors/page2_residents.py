@@ -180,7 +180,7 @@ def annotate_without_registration(persons_block: dict) -> dict:
 def annotate_person_registration_status(person: dict) -> dict:
     raw_text = person_departure_raw_text(person)
     if has_without_registration_marker(raw_text):
-        person["__registration_status"] = "without_registration"
+        person["__registration_status"] = "unregistered"
         person["__registration_status_raw"] = raw_text
     else:
         person["__registration_status"] = "registered"
@@ -189,7 +189,7 @@ def annotate_person_registration_status(person: dict) -> dict:
 
 
 def person_has_without_registration(person: dict) -> bool:
-    return (person.get("__registration_status") or "").lower() == "without_registration"
+    return (person.get("__registration_status") or "").lower() == "unregistered"
 
 
 def person_departure_raw_text(person: dict) -> str:
@@ -208,21 +208,3 @@ def has_without_registration_marker(value: str | None) -> bool:
         return True
     compact = re.sub(r"[^а-яa-z0-9]+", "", normalized)
     return "безрегистрац" in compact
-
-
-def filter_out_without_registration(persons: list[dict]) -> list[dict]:
-    return [person for person in persons if not person_has_without_registration(person)]
-
-
-def build_without_registration_trace(persons: list[dict]) -> list[dict]:
-    return [
-        {
-            "full_name": person.get("full_name"),
-            "birthday_date": person.get("birthday_date"),
-            "registration_status": "without_registration",
-            "raw": person.get("__registration_status_raw") or person.get("__departure_raw_text"),
-            "source_pages": [person.get("__page_number")] if person.get("__page_number") else [],
-        }
-        for person in persons
-        if person_has_without_registration(person)
-    ]

@@ -52,6 +52,7 @@ class OwnerResponse(BaseModel):
 class RegisteredPersonResponse(BaseModel):
     full_name: str | None = None
     birthday_date: str | None = None
+    registration_status: str | None = None
     passport: IdentityDocumentResponse = Field(default_factory=IdentityDocumentResponse)
     departure: DepartureResponse = Field(default_factory=DepartureResponse)
 
