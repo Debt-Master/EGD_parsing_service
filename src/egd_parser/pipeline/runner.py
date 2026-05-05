@@ -98,6 +98,10 @@ def build_public_payload(page1_payload: dict, page2_payload: dict) -> dict:
             "property_address": property_address,
             "management_company": {
                 "name": page1.get("management_company", {}).get("name"),
+                "inn": page1.get("management_company", {}).get("inn"),
+                "ogrn": page1.get("management_company", {}).get("ogrn"),
+                "address": page1.get("management_company", {}).get("address"),
+                "phone": page1.get("management_company", {}).get("phone"),
             },
             "settlement_type": page1.get("settlement_type"),
             "owners": owners,

@@ -53,6 +53,20 @@ def _build_registration_status_index(page_2: dict[str, Any]) -> dict[str, str]:
     return statuses
 
 
+def _normalize_management_company(mc: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not mc:
+        return None
+    if not any(mc.get(k) for k in ("name", "inn", "ogrn", "address", "phone")):
+        return None
+    return {
+        "name": mc.get("name"),
+        "inn": mc.get("inn"),
+        "ogrn": mc.get("ogrn"),
+        "address": mc.get("address"),
+        "phone": mc.get("phone"),
+    }
+
+
 def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
     persons = []
     page_1 = data.get("page_1", {})
@@ -111,6 +125,14 @@ def normalize(response: dict[str, Any]) -> dict[str, Any]:
     page_1 = data.get("page_1", {})
     page_2 = data.get("page_2", {})
     address = page_1.get("property_address", {})
+    passport = page_1.get("passport", {}) or {}
+
+    # document_date prefers passport issue_date (used as identity validFromDate
+    # in the SQL callback); falls back to the form's own document_date if the
+    # passport block is empty.
+    document_date = passport.get("issue_date") or page_1.get("document_date")
+
+    ownership_documents = page_1.get("ownership_documents") or []
 
     return {
         "document_type": "egd",
@@ -124,19 +146,20 @@ def normalize(response: dict[str, Any]) -> dict[str, Any]:
             "apartment": address.get("apartment"),
         },
         "persons": _normalize_persons(data),
-        "management_company": (page_1.get("management_company") or {}).get("name"),
+        "management_company": _normalize_management_company(page_1.get("management_company")),
         "property_type": page_1.get("settlement_type"),
         "benefits": page_2.get("benefits"),
         "billing": None,
         "administrative_okrug": page_1.get("administrative_okrug"),
         "district": page_1.get("district"),
         "total_area_sq_m": page_1.get("total_area_sq_m"),
-        "document_date": page_1.get("document_date"),
+        "document_date": document_date,
+        "ownership_documents": ownership_documents,
         "validations": response.get("metadata", {}).get("extraction_trace"),
         "metadata": {
             "ocr_engine": response.get("metadata", {}).get("ocr_engine"),
             "pages": response.get("pages"),
             "warnings": response.get("warnings"),
-            "ownership_documents": page_1.get("ownership_documents"),
+            "ownership_documents": ownership_documents,
         },
     }

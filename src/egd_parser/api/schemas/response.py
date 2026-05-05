@@ -42,6 +42,10 @@ class PropertyAddressResponse(BaseModel):
 
 class ManagementCompanyResponse(BaseModel):
     name: str | None = None
+    inn: str | None = None
+    ogrn: str | None = None
+    address: str | None = None
+    phone: str | None = None
 
 
 class OwnerResponse(BaseModel):
