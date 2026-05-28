@@ -18,6 +18,7 @@ from egd_parser.api.schemas.response import (
     JobStatusResponse,
     ParseResponse,
 )
+from egd_parser.application.errors import ParserError
 from egd_parser.application.services.job_models import JobRecord, UploadedDocument
 from egd_parser.application.services.parse_document import ParseDocumentService
 
@@ -89,12 +90,13 @@ class InMemoryJobStore:
             record.finished_at = datetime.now(UTC)
             return record
 
-    def mark_failed(self, job_id: str, error: str) -> JobRecord | None:
+    def mark_failed(self, job_id: str, error: str, error_code: str | None = None) -> JobRecord | None:
         with self._lock:
             record = self._jobs.get(job_id)
             if record is None:
                 return None
             record.status = "failed"
+            record.error_code = error_code
             record.error = error
             record.finished_at = datetime.now(UTC)
             return record
@@ -120,6 +122,8 @@ class JobService:
         self.store = store or InMemoryJobStore()
         self.upload_store = upload_store
         self.max_workers = max_workers
+        self._parse_lock = Lock()
+        self._parse_service: ParseDocumentService | None = None
 
     def enqueue_job(self, files: list[UploadedDocument], *, callback_url: str | None = None) -> JobStatusResponse:
         record = self.store.create_job(files, callback_url=callback_url)
@@ -211,16 +215,26 @@ class JobService:
                             extracted_data=response.extracted_data,
                             metadata=response.metadata,
                         )
+                    except ParserError as exc:
+                        result = JobFileResult(
+                            filename=source.filename,
+                            status="failed",
+                            error_code=exc.code,
+                            error=exc.message,
+                        )
                     except Exception as exc:  # noqa: BLE001
                         result = JobFileResult(
                             filename=source.filename,
                             status="failed",
+                            error_code="INTERNAL_ERROR",
                             error=str(exc),
                         )
                     self.store.store_file_result(job_id, result)
             self.store.mark_completed(job_id)
+        except ParserError as exc:
+            self.store.mark_failed(job_id, exc.message, exc.code)
         except Exception as exc:  # noqa: BLE001
-            self.store.mark_failed(job_id, str(exc))
+            self.store.mark_failed(job_id, str(exc), "INTERNAL_ERROR")
         self._send_callback(job_id)
 
     def _send_callback(self, job_id: str) -> None:
@@ -249,10 +263,14 @@ class JobService:
                 if not error and record.files:
                     failed = next((f for f in record.files if f.error), None)
                     error = failed.error if failed else None
+                    error_code = failed.error_code if failed else None
+                else:
+                    error_code = record.error_code
                 payload = {
                     "id": job_id,
                     "status": "failed",
                     "result": None,
+                    "error_code": error_code or "NO_DATA_EXTRACTED",
                     "error": error or "No data extracted",
                 }
 
@@ -262,10 +280,15 @@ class JobService:
         except Exception:  # noqa: BLE001
             logger.exception("Callback to %s failed for job %s", record.callback_url, job_id)
 
-    @staticmethod
-    def _parse_document(file: UploadedDocument) -> ParseResponse:
-        service = ParseDocumentService()
-        return service.run(filename=file.filename, content=file.content)
+    def _parse_document(self, file: UploadedDocument) -> ParseResponse:
+        with self._parse_lock:
+            if self._parse_service is None:
+                self._parse_service = ParseDocumentService()
+            return self._parse_service.run(
+                filename=file.filename,
+                content=file.content,
+                content_type=file.content_type,
+            )
 
     @staticmethod
     def _to_status_response(record: JobRecord) -> JobStatusResponse:
@@ -278,5 +301,6 @@ class JobService:
             total_files=record.total_files,
             completed_files=record.completed_files,
             failed_files=record.failed_files,
+            error_code=record.error_code,
             error=record.error,
         )

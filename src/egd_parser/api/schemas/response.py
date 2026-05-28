@@ -125,6 +125,7 @@ class JobStatusResponse(BaseModel):
     total_files: int
     completed_files: int = 0
     failed_files: int = 0
+    error_code: str | None = None
     error: str | None = None
 
 
@@ -139,6 +140,7 @@ class JobFileResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     extracted_data: ExtractedDataResponse = Field(default_factory=ExtractedDataResponse)
     metadata: MetadataResponse = Field(default_factory=MetadataResponse)
+    error_code: str | None = None
     error: str | None = None
 
 

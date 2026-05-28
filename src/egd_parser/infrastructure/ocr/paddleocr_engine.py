@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from egd_parser.application.errors import ParserError
 from egd_parser.domain.models.ocr import OCRPageResult, OCRWord
 from egd_parser.domain.models.page import PageImage
 from egd_parser.domain.ports.ocr_engine import OCREngine
@@ -108,8 +109,10 @@ class PaddleOCREngine(OCREngine):
             try:
                 from paddleocr import PaddleOCR
             except ImportError as exc:
-                raise RuntimeError(
-                    "PaddleOCR is not installed. Install PaddlePaddle and paddleocr first."
+                raise ParserError(
+                    "OCR_ENGINE_UNAVAILABLE",
+                    "PaddleOCR is not installed.",
+                    status_code=503,
                 ) from exc
 
             kwargs = {
@@ -126,6 +129,14 @@ class PaddleOCREngine(OCREngine):
                 kwargs["textline_orientation_model_name"] = self.textline_orientation_model_name
                 kwargs["textline_orientation_model_dir"] = self.textline_orientation_model_dir
 
-            self._reader = PaddleOCR(**kwargs)
+            try:
+                self._reader = PaddleOCR(**kwargs)
+            except Exception as exc:  # noqa: BLE001
+                raise ParserError(
+                    "OCR_INIT_FAILED",
+                    "PaddleOCR failed to initialize.",
+                    status_code=503,
+                    details={"error": str(exc)[:1000]},
+                ) from exc
 
         return self._reader

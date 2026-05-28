@@ -24,5 +24,6 @@ class JobRecord:
     completed_files: int = 0
     failed_files: int = 0
     files: list[JobFileResult] | None = None
+    error_code: str | None = None
     error: str | None = None
     callback_url: str | None = None

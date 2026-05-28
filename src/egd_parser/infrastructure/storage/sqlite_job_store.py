@@ -31,8 +31,8 @@ class SQLiteJobStore:
                 """
                 INSERT INTO jobs (
                     job_id, status, created_at, started_at, finished_at,
-                    total_files, completed_files, failed_files, error, callback_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    total_files, completed_files, failed_files, error_code, error, callback_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.job_id,
@@ -43,6 +43,7 @@ class SQLiteJobStore:
                     record.total_files,
                     record.completed_files,
                     record.failed_files,
+                    record.error_code,
                     record.error,
                     record.callback_url,
                 ),
@@ -51,8 +52,8 @@ class SQLiteJobStore:
                 """
                 INSERT INTO job_files (
                     job_id, file_index, filename, status, pages,
-                    warnings_json, extracted_data_json, metadata_json, error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    warnings_json, extracted_data_json, metadata_json, error_code, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -64,6 +65,7 @@ class SQLiteJobStore:
                         "[]",
                         "{}",
                         "{}",
+                        None,
                         None,
                     )
                     for index, file in enumerate(files)
@@ -77,7 +79,7 @@ class SQLiteJobStore:
             job_row = connection.execute(
                 """
                 SELECT job_id, status, created_at, started_at, finished_at,
-                       total_files, completed_files, failed_files, error, callback_url
+                       total_files, completed_files, failed_files, error_code, error, callback_url
                 FROM jobs
                 WHERE job_id = ?
                 """,
@@ -88,7 +90,7 @@ class SQLiteJobStore:
             file_rows = connection.execute(
                 """
                 SELECT filename, status, pages, warnings_json,
-                       extracted_data_json, metadata_json, error
+                       extracted_data_json, metadata_json, error_code, error
                 FROM job_files
                 WHERE job_id = ?
                 ORDER BY file_index
@@ -102,7 +104,7 @@ class SQLiteJobStore:
             job_rows = connection.execute(
                 """
                 SELECT job_id, status, created_at, started_at, finished_at,
-                       total_files, completed_files, failed_files, error, callback_url
+                       total_files, completed_files, failed_files, error_code, error, callback_url
                 FROM jobs
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -114,7 +116,7 @@ class SQLiteJobStore:
                 file_rows = connection.execute(
                     """
                     SELECT filename, status, pages, warnings_json,
-                           extracted_data_json, metadata_json, error
+                           extracted_data_json, metadata_json, error_code, error
                     FROM job_files
                     WHERE job_id = ?
                     ORDER BY file_index
@@ -139,7 +141,7 @@ class SQLiteJobStore:
             connection.execute(
                 """
                 UPDATE job_files
-                SET status = ?, pages = ?, warnings_json = ?, extracted_data_json = ?, metadata_json = ?, error = ?
+                SET status = ?, pages = ?, warnings_json = ?, extracted_data_json = ?, metadata_json = ?, error_code = ?, error = ?
                 WHERE job_id = ? AND filename = ?
                 """,
                 (
@@ -148,6 +150,7 @@ class SQLiteJobStore:
                     json.dumps(result.warnings, ensure_ascii=False),
                     json.dumps(result.extracted_data.model_dump() if hasattr(result.extracted_data, "model_dump") else result.extracted_data, ensure_ascii=False),
                     json.dumps(result.metadata.model_dump() if hasattr(result.metadata, "model_dump") else result.metadata, ensure_ascii=False),
+                    result.error_code,
                     result.error,
                     job_id,
                     result.filename,
@@ -185,11 +188,11 @@ class SQLiteJobStore:
             connection.commit()
         return self.get(job_id)
 
-    def mark_failed(self, job_id: str, error: str) -> JobRecord | None:
+    def mark_failed(self, job_id: str, error: str, error_code: str | None = None) -> JobRecord | None:
         with self._lock, self._connect() as connection:
             connection.execute(
-                "UPDATE jobs SET status = ?, error = ?, finished_at = ? WHERE job_id = ?",
-                ("failed", error, self._to_iso(datetime.now(UTC)), job_id),
+                "UPDATE jobs SET status = ?, error_code = ?, error = ?, finished_at = ? WHERE job_id = ?",
+                ("failed", error_code, error, self._to_iso(datetime.now(UTC)), job_id),
             )
             connection.commit()
         return self.get(job_id)
@@ -241,6 +244,7 @@ class SQLiteJobStore:
                     total_files INTEGER NOT NULL,
                     completed_files INTEGER NOT NULL,
                     failed_files INTEGER NOT NULL,
+                    error_code TEXT,
                     error TEXT,
                     callback_url TEXT
                 )
@@ -250,6 +254,8 @@ class SQLiteJobStore:
             columns = [row[1] for row in connection.execute("PRAGMA table_info(jobs)").fetchall()]
             if "callback_url" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN callback_url TEXT")
+            if "error_code" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN error_code TEXT")
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS job_files (
@@ -261,12 +267,16 @@ class SQLiteJobStore:
                     warnings_json TEXT NOT NULL,
                     extracted_data_json TEXT NOT NULL,
                     metadata_json TEXT NOT NULL,
+                    error_code TEXT,
                     error TEXT,
                     PRIMARY KEY (job_id, file_index),
                     FOREIGN KEY(job_id) REFERENCES jobs(job_id)
                 )
                 """
             )
+            file_columns = [row[1] for row in connection.execute("PRAGMA table_info(job_files)").fetchall()]
+            if "error_code" not in file_columns:
+                connection.execute("ALTER TABLE job_files ADD COLUMN error_code TEXT")
             connection.commit()
 
     def _connect(self) -> sqlite3.Connection:
@@ -306,10 +316,12 @@ class SQLiteJobStore:
                     warnings=json.loads(row["warnings_json"]),
                     extracted_data=json.loads(row["extracted_data_json"]),
                     metadata=json.loads(row["metadata_json"]),
+                    error_code=row["error_code"],
                     error=row["error"],
                 )
                 for row in file_rows
             ],
+            error_code=job_row["error_code"],
             error=job_row["error"],
             callback_url=job_row["callback_url"],
         )
