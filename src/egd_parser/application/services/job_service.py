@@ -223,6 +223,11 @@ class JobService:
                             error=exc.message,
                         )
                     except Exception as exc:  # noqa: BLE001
+                        logger.exception(
+                            "Unhandled parser error for job %s file %s",
+                            job_id,
+                            source.filename,
+                        )
                         result = JobFileResult(
                             filename=source.filename,
                             status="failed",
@@ -234,6 +239,7 @@ class JobService:
         except ParserError as exc:
             self.store.mark_failed(job_id, exc.message, exc.code)
         except Exception as exc:  # noqa: BLE001
+            logger.exception("Unhandled job error for job %s", job_id)
             self.store.mark_failed(job_id, str(exc), "INTERNAL_ERROR")
         self._send_callback(job_id)
 
