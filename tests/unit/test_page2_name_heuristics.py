@@ -34,6 +34,10 @@ def test_normalize_name_text_repairs_mixed_name_text() -> None:
     assert normalize_name_text("Кукса Максим Дмiтrиevич") == "Кукса Максим Дмитриевич"
 
 
+def test_normalize_name_text_repairs_latin_s_in_mixed_surname() -> None:
+    assert normalize_name_text("Seменов Никита Анатольевич") == "Семенов Никита Анатольевич"
+
+
 def test_merge_split_name_parts_repairs_hyphenated_patronymic_tail() -> None:
     assert merge_split_name_parts(["Николаев-", "Ha"]) == ["Николаевна"]
 

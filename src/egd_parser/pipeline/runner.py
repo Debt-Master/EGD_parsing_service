@@ -400,16 +400,25 @@ def find_best_candidate_name(value: str, candidates: list[str]) -> str | None:
         candidate_parts = normalized_candidate.split()
         if len(candidate_parts) < 2:
             continue
-        if candidate_parts[0] not in surname_candidates:
+        exact_surname_match = candidate_parts[0] in surname_candidates
+        fuzzy_surname_match = any(
+            are_single_ocr_substitution_apart(candidate_parts[0], value_part)
+            for value_part in surname_candidates
+        )
+        if not exact_surname_match and not fuzzy_surname_match:
             continue
 
-        score = 1
+        score = 1 if exact_surname_match else 0
         if len(value_parts) >= 2 and len(candidate_parts) >= 2:
             if candidate_parts[1].startswith(value_parts[1]) or value_parts[1].startswith(candidate_parts[1]):
                 score += 1
         if len(value_parts) >= 3 and len(candidate_parts) >= 3:
             if candidate_parts[2].startswith(value_parts[2]) or value_parts[2].startswith(candidate_parts[2]):
                 score += 1
+        if fuzzy_surname_match and not exact_surname_match and score < 2:
+            continue
+        if fuzzy_surname_match and not exact_surname_match:
+            score += 1
         if score > best_score:
             best_score = score
             best_match = candidate
@@ -430,6 +439,12 @@ def find_best_candidate_name(value: str, candidates: list[str]) -> str | None:
             return matching_by_surname[0]
 
     return None
+
+
+def are_single_ocr_substitution_apart(left: str, right: str) -> bool:
+    if len(left) != len(right) or left == right:
+        return False
+    return sum(1 for left_char, right_char in zip(left, right) if left_char != right_char) == 1
 
 
 def canonicalize_name(value: str) -> str:

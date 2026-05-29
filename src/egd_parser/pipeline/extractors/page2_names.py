@@ -47,6 +47,8 @@ MIXED_NAME_LOOKALIKE_MAP = str.maketrans(
         "p": "р",
         "R": "Р",
         "r": "р",
+        "S": "С",
+        "s": "с",
         "T": "Т",
         "V": "В",
         "v": "в",
