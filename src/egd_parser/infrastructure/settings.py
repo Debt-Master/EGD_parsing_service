@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     log_level: str = "INFO"
     ocr_engine: str = "paddleocr"
+    ocr_preload: bool = False
     pdf_render_dpi: int = 300
     attempts_dir: Path = Path("attempts")
     jobs_db_path: Path = Path("storage/jobs.sqlite3")

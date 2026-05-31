@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from threading import Lock
+from time import sleep
 
 from egd_parser.application.errors import ParserError
 from egd_parser.domain.models.ocr import OCRPageResult, OCRWord
@@ -12,6 +13,8 @@ from egd_parser.utils.text import normalize_whitespace
 
 class PaddleOCREngine(OCREngine):
     _inference_lock = Lock()
+    _reader_lock = Lock()
+    _shared_readers: dict[tuple[object, ...], object] = {}
 
     def __init__(
         self,
@@ -27,8 +30,6 @@ class PaddleOCREngine(OCREngine):
         textline_orientation_model_dir: str | None = None,
         pdx_cache_home: str | None = None,
     ) -> None:
-        self._reader = None
-        self._reader_lock = Lock()
         self.language = language
         self.use_angle_cls = use_angle_cls
         self.base_dir = base_dir
@@ -39,6 +40,18 @@ class PaddleOCREngine(OCREngine):
         self.rec_model_dir = rec_model_dir
         self.textline_orientation_model_dir = textline_orientation_model_dir
         self.pdx_cache_home = pdx_cache_home
+        self._reader_key = (
+            self.language,
+            self.use_angle_cls,
+            self.base_dir,
+            self.det_model_name,
+            self.rec_model_name,
+            self.textline_orientation_model_name,
+            self.det_model_dir,
+            self.rec_model_dir,
+            self.textline_orientation_model_dir,
+            self.pdx_cache_home,
+        )
 
     def recognize(self, pages: list[PageImage]) -> list[OCRPageResult]:
         reader = self._get_reader()
@@ -100,16 +113,40 @@ class PaddleOCREngine(OCREngine):
         return results
 
     def _get_reader(self):
-        if self._reader is not None:
-            return self._reader
+        reader = self._shared_readers.get(self._reader_key)
+        if reader is not None:
+            return reader
 
         with self._reader_lock:
-            if self._reader is not None:
-                return self._reader
+            reader = self._shared_readers.get(self._reader_key)
+            if reader is not None:
+                return reader
 
-            self._reader = self._create_reader()
+            reader = self._create_reader_with_retries()
+            self._shared_readers[self._reader_key] = reader
 
-        return self._reader
+        return reader
+
+    def _create_reader_with_retries(self):
+        attempts = 3
+        last_error: ParserError | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return self._create_reader()
+            except ParserError as exc:
+                last_error = exc
+                if exc.code != "OCR_INIT_FAILED" or attempt == attempts:
+                    break
+                sleep(0.5 * attempt)
+
+        if last_error is not None:
+            raise last_error
+
+        raise ParserError(
+            "OCR_INIT_FAILED",
+            "PaddleOCR failed to initialize.",
+            status_code=503,
+        )
 
     def _create_reader(self):
         if self.base_dir:
@@ -119,8 +156,10 @@ class PaddleOCREngine(OCREngine):
                 "PADDLE_PDX_CACHE_HOME",
                 self.pdx_cache_home or str(model_base_dir / "pdx-cache"),
             )
-            os.environ.setdefault("PADDLE_OCR_BASE_DIR", str(model_base_dir / "models"))
+            os.environ.setdefault("PADDLE_OCR_BASE_DIR", str(model_base_dir))
             os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+
+        self._validate_model_dirs()
 
         try:
             from paddleocr import PaddleOCR
@@ -154,3 +193,37 @@ class PaddleOCREngine(OCREngine):
                 status_code=503,
                 details={"error": str(exc)[:1000]},
             ) from exc
+
+    def _validate_model_dirs(self) -> None:
+        required_dirs = {
+            "text_detection_model_dir": self.det_model_dir,
+            "text_recognition_model_dir": self.rec_model_dir,
+        }
+        if self.use_angle_cls:
+            required_dirs["textline_orientation_model_dir"] = self.textline_orientation_model_dir
+
+        missing: dict[str, dict[str, object]] = {}
+        for name, raw_dir in required_dirs.items():
+            if raw_dir is None:
+                missing[name] = {"path": None, "missing_files": ["model_dir"]}
+                continue
+
+            model_dir = Path(raw_dir)
+            required_files = ("inference.json", "inference.yml", "inference.pdiparams")
+            missing_files = [
+                filename for filename in required_files if not (model_dir / filename).is_file()
+            ]
+            if not model_dir.is_dir() or missing_files:
+                missing[name] = {
+                    "path": str(model_dir),
+                    "exists": model_dir.is_dir(),
+                    "missing_files": missing_files,
+                }
+
+        if missing:
+            raise ParserError(
+                "OCR_MODELS_UNAVAILABLE",
+                "PaddleOCR model files are unavailable.",
+                status_code=503,
+                details={"models": missing},
+            )

@@ -9,6 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     API_PREFIX=/api/v1 \
     LOG_LEVEL=INFO \
     OCR_ENGINE=paddleocr \
+    OCR_PRELOAD=true \
     PDF_RENDER_DPI=300 \
     JOBS_DB_PATH=/data/jobs.sqlite3 \
     UPLOADS_DIR=/data/uploads \
@@ -18,13 +19,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     RENDERED_PAGES_RETENTION_HOURS=24 \
     PADDLEOCR_LANGUAGE=ru \
     PADDLEOCR_USE_ANGLE_CLS=false \
-    PADDLEOCR_BASE_DIR=/models \
+    PADDLEOCR_BASE_DIR=/app/models \
     PADDLEOCR_DET_MODEL_NAME=PP-OCRv5_mobile_det \
     PADDLEOCR_REC_MODEL_NAME=cyrillic_PP-OCRv5_mobile_rec \
     PADDLEOCR_TEXTLINE_ORIENTATION_MODEL_NAME=PP-LCNet_x0_25_textline_ori \
-    PADDLEOCR_DET_MODEL_DIR=/models/PP-OCRv5_mobile_det_infer \
-    PADDLEOCR_REC_MODEL_DIR=/models/cyrillic_PP-OCRv5_mobile_rec_infer \
-    PADDLEOCR_TEXTLINE_ORIENTATION_MODEL_DIR=/models/PP-LCNet_x0_25_textline_ori_infer \
+    PADDLEOCR_DET_MODEL_DIR=/app/models/PP-OCRv5_mobile_det_infer \
+    PADDLEOCR_REC_MODEL_DIR=/app/models/cyrillic_PP-OCRv5_mobile_rec_infer \
+    PADDLEOCR_TEXTLINE_ORIENTATION_MODEL_DIR=/app/models/PP-LCNet_x0_25_textline_ori_infer \
     PADDLE_PDX_CACHE_HOME=/data/pdx-cache
 
 WORKDIR /app
@@ -39,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml README.md .env.example /app/
 COPY src /app/src
 COPY scripts /app/scripts
+COPY models /app/models
 
 RUN pip install --upgrade pip \
     && pip install -e . \

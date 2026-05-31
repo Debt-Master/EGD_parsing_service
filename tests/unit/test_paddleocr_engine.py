@@ -4,8 +4,18 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from time import sleep
 
+import pytest
+
+from egd_parser.application.errors import ParserError
 from egd_parser.domain.models.page import PageImage
 from egd_parser.infrastructure.ocr.paddleocr_engine import PaddleOCREngine
+
+
+@pytest.fixture(autouse=True)
+def clear_shared_readers():
+    PaddleOCREngine._shared_readers.clear()
+    yield
+    PaddleOCREngine._shared_readers.clear()
 
 
 class BlockingReader:
@@ -61,3 +71,62 @@ def test_paddleocr_engine_initializes_reader_once_under_concurrency(monkeypatch)
 
     assert readers == [reader, reader]
     assert create_calls == 1
+
+
+def test_paddleocr_engine_reuses_reader_across_instances_under_concurrency(monkeypatch) -> None:
+    reader = BlockingReader()
+    create_calls = 0
+    create_lock = Lock()
+
+    def create_reader(self):
+        nonlocal create_calls
+        del self
+        sleep(0.02)
+        with create_lock:
+            create_calls += 1
+        return reader
+
+    monkeypatch.setattr(PaddleOCREngine, "_create_reader", create_reader)
+    engines = [PaddleOCREngine(), PaddleOCREngine()]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(engine._get_reader) for engine in engines]
+        readers = [future.result() for future in futures]
+
+    assert readers == [reader, reader]
+    assert create_calls == 1
+
+
+def test_paddleocr_engine_retries_transient_initialization_failure(monkeypatch) -> None:
+    reader = BlockingReader()
+    engine = PaddleOCREngine()
+    create_calls = 0
+
+    def create_reader():
+        nonlocal create_calls
+        create_calls += 1
+        if create_calls == 1:
+            raise ParserError("OCR_INIT_FAILED", "PaddleOCR failed to initialize.")
+        return reader
+
+    monkeypatch.setattr(engine, "_create_reader", create_reader)
+    monkeypatch.setattr("egd_parser.infrastructure.ocr.paddleocr_engine.sleep", lambda delay: None)
+
+    assert engine._get_reader() is reader
+    assert create_calls == 2
+
+
+def test_paddleocr_engine_reports_missing_model_files(tmp_path) -> None:
+    det_dir = tmp_path / "missing_det"
+    rec_dir = tmp_path / "missing_rec"
+    engine = PaddleOCREngine(
+        det_model_dir=str(det_dir),
+        rec_model_dir=str(rec_dir),
+    )
+
+    with pytest.raises(ParserError) as exc_info:
+        engine._validate_model_dirs()
+
+    assert exc_info.value.code == "OCR_MODELS_UNAVAILABLE"
+    assert exc_info.value.details["models"]["text_detection_model_dir"]["path"] == str(det_dir)
+    assert exc_info.value.details["models"]["text_recognition_model_dir"]["path"] == str(rec_dir)

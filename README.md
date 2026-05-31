@@ -339,18 +339,20 @@ docker run --rm -p 8000:8000 \
   -e APP_ENV=prod \
   -e LOG_LEVEL=INFO \
   -e OCR_ENGINE=paddleocr \
+  -e OCR_PRELOAD=true \
   -e JOBS_DB_PATH=/data/jobs.sqlite3 \
   -e UPLOADS_DIR=/data/uploads \
   -v $(pwd)/data:/data \
-  -v $(pwd)/models:/models \
   egd-parser-service:latest
 ```
 
-Ожидается, что локальные модели PaddleOCR будут лежать в примонтированном каталоге:
+Локальные модели PaddleOCR копируются в Docker-образ при сборке:
 
-- `./models/models/PP-OCRv5_mobile_det_infer`
-- `./models/models/cyrillic_PP-OCRv5_mobile_rec_infer`
-- `./models/models/PP-LCNet_x0_25_textline_ori_infer`
+- `/app/models/PP-OCRv5_mobile_det_infer`
+- `/app/models/cyrillic_PP-OCRv5_mobile_rec_infer`
+- `/app/models/PP-LCNet_x0_25_textline_ori_infer`
+
+Не монтируйте пустой или неполный каталог поверх `/app/models`: это скроет модели внутри образа.
 
 ## Переменные окружения
 
@@ -362,6 +364,7 @@ docker run --rm -p 8000:8000 \
 - `API_PREFIX` — префикс API, по умолчанию `/api/v1`
 - `LOG_LEVEL` — уровень логирования
 - `OCR_ENGINE` — OCR-движок, по умолчанию `paddleocr`
+- `OCR_PRELOAD` — инициализировать OCR при старте приложения, чтобы первый запрос не ловил cold start
 - `PDF_RENDER_DPI` — DPI для рендера PDF
 
 Storage:
