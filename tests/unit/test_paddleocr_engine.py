@@ -35,6 +35,15 @@ class BlockingReader:
         return [{"dt_polys": [], "rec_texts": [], "rec_scores": []}]
 
 
+class FailingReader:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def ocr(self, image_path: str):
+        del image_path
+        raise self.error
+
+
 def test_paddleocr_engine_serializes_shared_reader_inference(monkeypatch) -> None:
     reader = BlockingReader()
     engine = PaddleOCREngine()
@@ -130,3 +139,41 @@ def test_paddleocr_engine_reports_missing_model_files(tmp_path) -> None:
     assert exc_info.value.code == "OCR_MODELS_UNAVAILABLE"
     assert exc_info.value.details["models"]["text_detection_model_dir"]["path"] == str(det_dir)
     assert exc_info.value.details["models"]["text_recognition_model_dir"]["path"] == str(rec_dir)
+
+
+def test_paddleocr_engine_recovers_from_transient_inference_failure(monkeypatch) -> None:
+    failing_reader = FailingReader(RuntimeError("std::exception"))
+    recovered_reader = BlockingReader()
+    readers = [failing_reader, recovered_reader]
+    engine = PaddleOCREngine()
+
+    def create_reader():
+        return readers.pop(0)
+
+    monkeypatch.setattr(engine, "_create_reader", create_reader)
+    monkeypatch.setattr("egd_parser.infrastructure.ocr.paddleocr_engine.sleep", lambda delay: None)
+
+    results = engine.recognize([PageImage(number=1, image_path="/tmp/page.png")])
+
+    assert len(results) == 1
+    assert engine._get_reader() is recovered_reader
+
+
+def test_paddleocr_engine_reports_inference_failure_after_retry(monkeypatch) -> None:
+    readers = [
+        FailingReader(RuntimeError("std::exception")),
+        FailingReader(RuntimeError("std::exception again")),
+    ]
+    engine = PaddleOCREngine()
+
+    def create_reader():
+        return readers.pop(0)
+
+    monkeypatch.setattr(engine, "_create_reader", create_reader)
+    monkeypatch.setattr("egd_parser.infrastructure.ocr.paddleocr_engine.sleep", lambda delay: None)
+
+    with pytest.raises(ParserError) as exc_info:
+        engine.recognize([PageImage(number=1, image_path="/tmp/page.png")])
+
+    assert exc_info.value.code == "OCR_INFERENCE_FAILED"
+    assert "std::exception again" in exc_info.value.details["error"]

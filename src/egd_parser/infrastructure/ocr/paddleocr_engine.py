@@ -54,7 +54,6 @@ class PaddleOCREngine(OCREngine):
         )
 
     def recognize(self, pages: list[PageImage]) -> list[OCRPageResult]:
-        reader = self._get_reader()
         results: list[OCRPageResult] = []
 
         for page in pages:
@@ -62,8 +61,7 @@ class PaddleOCREngine(OCREngine):
                 results.append(OCRPageResult(page_number=page.number, text=""))
                 continue
 
-            with self._inference_lock:
-                raw_result = reader.ocr(page.image_path)
+            raw_result = self._run_ocr_with_recovery(page.image_path)
             page_result = raw_result[0] if raw_result else {}
             polygons = page_result.get("dt_polys", [])
             texts = page_result.get("rec_texts", [])
@@ -111,6 +109,42 @@ class PaddleOCREngine(OCREngine):
             )
 
         return results
+
+    def _run_ocr_with_recovery(self, image_path: str):
+        reader = self._get_reader()
+        try:
+            return self._run_reader_ocr(reader, image_path)
+        except ParserError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self._invalidate_reader(reader)
+            sleep(0.2)
+            recovered_reader = self._get_reader()
+            try:
+                return self._run_reader_ocr(recovered_reader, image_path)
+            except ParserError:
+                raise
+            except Exception as retry_exc:  # noqa: BLE001
+                self._invalidate_reader(recovered_reader)
+                raise ParserError(
+                    "OCR_INFERENCE_FAILED",
+                    "PaddleOCR failed during inference.",
+                    status_code=503,
+                    details={
+                        "error": str(retry_exc)[:1000],
+                        "previous_error": str(exc)[:1000],
+                    },
+                ) from retry_exc
+
+    def _run_reader_ocr(self, reader, image_path: str):
+        with self._inference_lock:
+            return reader.ocr(image_path)
+
+    def _invalidate_reader(self, reader) -> None:
+        with self._reader_lock:
+            current_reader = self._shared_readers.get(self._reader_key)
+            if current_reader is reader:
+                self._shared_readers.pop(self._reader_key, None)
 
     def _get_reader(self):
         reader = self._shared_readers.get(self._reader_key)
