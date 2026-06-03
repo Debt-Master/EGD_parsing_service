@@ -77,3 +77,27 @@ def test_management_company_none_when_empty():
 def test_ownership_documents_empty_list_when_absent():
     out = normalize(_make_response(ownership_documents=[]))
     assert out["ownership_documents"] == []
+
+
+def test_primary_tenant_gets_occupancy_status_from_settlement_type():
+    response = _make_response(
+        settlement_type="социальный наем",
+        owners=[],
+        primary_tenant="Константинов Николай Алексеевич",
+    )
+    response["extracted_data"]["page_2"] = {
+        "registered_persons_constantly": {
+            "persons": [
+                {
+                    "full_name": "Константинов Николай Алексеевич",
+                    "registration_status": "registered",
+                }
+            ]
+        }
+    }
+    out = normalize(response)
+
+    tenant = next(person for person in out["persons"] if person["role"] == "tenant")
+    assert tenant["registration_status"] == "registered"
+    assert tenant["settlement_type"] == "социальный наем"
+    assert tenant["occupancy_status"] == "социальный наем"

@@ -72,12 +72,15 @@ def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
     page_1 = data.get("page_1", {})
     page_2 = data.get("page_2", {})
     registration_statuses = _build_registration_status_index(page_2)
+    settlement_type = page_1.get("settlement_type")
 
     passport = page_1.get("passport", {})
     for i, owner in enumerate(page_1.get("owners", [])):
         person = {
             "role": "owner",
             "registration_status": registration_statuses.get(owner.get("full_name"), "unknown"),
+            "settlement_type": settlement_type,
+            "occupancy_status": None,
             "full_name": owner.get("full_name"),
             **_split_name(owner.get("full_name")),
             "birthday_date": None,
@@ -91,6 +94,8 @@ def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
         persons.append({
             "role": "tenant",
             "registration_status": registration_statuses.get(page_1["primary_tenant"], "unknown"),
+            "settlement_type": settlement_type,
+            "occupancy_status": settlement_type,
             "full_name": page_1["primary_tenant"],
             **_split_name(page_1["primary_tenant"]),
             "birthday_date": None,
@@ -108,6 +113,8 @@ def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
             persons.append({
                 "role": role,
                 "registration_status": p.get("registration_status") or "registered",
+                "settlement_type": settlement_type,
+                "occupancy_status": None,
                 "full_name": p.get("full_name"),
                 **_split_name(p.get("full_name")),
                 "birthday_date": p.get("birthday_date"),
