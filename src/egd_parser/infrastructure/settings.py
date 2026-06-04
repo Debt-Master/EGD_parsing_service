@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     uploads_dir: Path = Path("storage/uploads")
     jobs_retention_days: int = 30
     job_worker_threads: int = 1
+    job_max_active_jobs: int = 1
     rendered_pages_dir: Path = Path("tmp/rendered_pages")
     rendered_pages_retention_hours: int = 24
     paddleocr_language: str = "ru"

@@ -36,10 +36,14 @@ class PipelineRunner:
         self.ocr = create_ocr_engine(self.settings)
 
     def run(self, filename: str, content: bytes) -> ParsedDocument:
-        pages = self.renderer.render(filename=filename, content=content)
-        processed_pages = [enhance_contrast(page) for page in pages]
-        classified_pages = classify_pages(processed_pages)
-        ocr_results = self.ocr.recognize(classified_pages)
+        classified_pages = []
+        ocr_results = []
+        for page in self.renderer.render_iter(filename=filename, content=content):
+            processed_page = enhance_contrast(page)
+            classified_page = classify_pages([processed_page])[0]
+            classified_pages.append(classified_page)
+            ocr_results.extend(self.ocr.recognize([classified_page]))
+
         page1_data = extract_page1(ocr_results)
         page2_data = extract_page2(ocr_results)
         page2_data["registered_persons_constantly"] = apply_row_reocr_fallback(

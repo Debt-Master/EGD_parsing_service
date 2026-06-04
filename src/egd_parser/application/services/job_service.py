@@ -4,7 +4,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Lock, Thread
+from threading import BoundedSemaphore, Lock, Thread
 from uuid import uuid4
 
 import httpx
@@ -118,10 +118,18 @@ class InMemoryJobStore:
 
 
 class JobService:
-    def __init__(self, store: object | None = None, upload_store: object | None = None, max_workers: int = 4) -> None:
+    def __init__(
+        self,
+        store: object | None = None,
+        upload_store: object | None = None,
+        max_workers: int = 4,
+        max_active_jobs: int = 1,
+    ) -> None:
         self.store = store or InMemoryJobStore()
         self.upload_store = upload_store
         self.max_workers = max_workers
+        self.max_active_jobs = max(1, max_active_jobs)
+        self._active_job_slots = BoundedSemaphore(self.max_active_jobs)
         self._parse_lock = Lock()
         self._parse_service: ParseDocumentService | None = None
 
@@ -193,9 +201,17 @@ class JobService:
         return {
             "jobs": counts,
             "worker_threads": self.max_workers,
+            "max_active_jobs": self.max_active_jobs,
         }
 
     def _run_job(self, job_id: str, files: list[UploadedDocument]) -> None:
+        self._active_job_slots.acquire()
+        try:
+            self._process_job(job_id, files)
+        finally:
+            self._active_job_slots.release()
+
+    def _process_job(self, job_id: str, files: list[UploadedDocument]) -> None:
         try:
             self.store.mark_running(job_id)
             with ThreadPoolExecutor(max_workers=min(self.max_workers, max(1, len(files)))) as executor:

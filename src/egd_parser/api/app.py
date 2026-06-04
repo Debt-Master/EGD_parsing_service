@@ -75,6 +75,7 @@ def create_app() -> FastAPI:
         store=SQLiteJobStore(settings.jobs_db_path),
         upload_store=UploadStore(settings.uploads_dir),
         max_workers=settings.job_worker_threads,
+        max_active_jobs=settings.job_max_active_jobs,
     )
 
     app.add_middleware(RequestLoggingMiddleware)

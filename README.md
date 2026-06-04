@@ -373,6 +373,7 @@ Storage:
 - `UPLOADS_DIR` — директория хранения загруженных PDF
 - `JOBS_RETENTION_DAYS` — retention для cleanup jobs
 - `JOB_WORKER_THREADS` — число потоков для параллельного разбора файлов внутри одного job
+- `JOB_MAX_ACTIVE_JOBS` — сколько jobs могут одновременно выполнять тяжелый OCR-пайплайн; по умолчанию `1`
 - `RENDERED_PAGES_DIR` — директория временных PNG рендеров страниц
 - `RENDERED_PAGES_RETENTION_HOURS` — сколько хранить временные рендеры
 
