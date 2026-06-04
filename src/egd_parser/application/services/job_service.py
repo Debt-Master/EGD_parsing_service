@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import BoundedSemaphore, Lock, Thread
+from queue import Queue
+from threading import Event, Lock, Thread
 from uuid import uuid4
 
 import httpx
@@ -23,6 +24,23 @@ from egd_parser.application.services.job_models import JobRecord, UploadedDocume
 from egd_parser.application.services.parse_document import ParseDocumentService
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class _JobTask:
+    job_id: str
+    files: list[UploadedDocument]
+
+
+@dataclass(slots=True)
+class _WarmupTask:
+    done: Event
+    error: BaseException | None = None
+
+
+@dataclass(slots=True)
+class _StopTask:
+    done: Event
 
 
 class InMemoryJobStore:
@@ -129,16 +147,17 @@ class JobService:
         self.upload_store = upload_store
         self.max_workers = max_workers
         self.max_active_jobs = max(1, max_active_jobs)
-        self._active_job_slots = BoundedSemaphore(self.max_active_jobs)
         self._parse_lock = Lock()
         self._parse_service: ParseDocumentService | None = None
+        self._tasks: Queue[_JobTask | _WarmupTask | _StopTask] = Queue()
+        self._worker = Thread(target=self._worker_loop, name="egd-parser-job-worker", daemon=True)
+        self._worker.start()
 
     def enqueue_job(self, files: list[UploadedDocument], *, callback_url: str | None = None) -> JobStatusResponse:
         record = self.store.create_job(files, callback_url=callback_url)
         if self.upload_store is not None:
             self.upload_store.save_job_files(record.job_id, files)
-        worker = Thread(target=self._run_job, args=(record.job_id, files), daemon=True)
-        worker.start()
+        self._tasks.put(_JobTask(record.job_id, files))
         return self._to_status_response(record)
 
     def list_jobs(self, limit: int = 100) -> JobListResponse:
@@ -202,55 +221,54 @@ class JobService:
             "jobs": counts,
             "worker_threads": self.max_workers,
             "max_active_jobs": self.max_active_jobs,
+            "job_queue_size": self._tasks.qsize(),
         }
 
-    def _run_job(self, job_id: str, files: list[UploadedDocument]) -> None:
-        self._active_job_slots.acquire()
-        try:
-            self._process_job(job_id, files)
-        finally:
-            self._active_job_slots.release()
+    def warmup(self, timeout: float | None = None) -> None:
+        task = _WarmupTask(done=Event())
+        self._tasks.put(task)
+        if not task.done.wait(timeout=timeout):
+            raise TimeoutError("Timed out while warming up OCR worker.")
+        if task.error is not None:
+            raise task.error
+
+    def shutdown(self, timeout: float | None = 5.0) -> None:
+        task = _StopTask(done=Event())
+        self._tasks.put(task)
+        task.done.wait(timeout=timeout)
+
+    def _worker_loop(self) -> None:
+        while True:
+            task = self._tasks.get()
+            try:
+                if isinstance(task, _JobTask):
+                    self._process_job(task.job_id, task.files)
+                elif isinstance(task, _WarmupTask):
+                    try:
+                        self._get_parse_service().warmup()
+                    except BaseException as exc:  # noqa: BLE001
+                        task.error = exc
+                    finally:
+                        task.done.set()
+                else:
+                    task.done.set()
+                    return
+            except Exception:  # noqa: BLE001
+                logger.exception("Unhandled worker task error")
+            finally:
+                self._tasks.task_done()
+
+    def _get_parse_service(self) -> ParseDocumentService:
+        if self._parse_service is None:
+            self._parse_service = ParseDocumentService()
+        return self._parse_service
 
     def _process_job(self, job_id: str, files: list[UploadedDocument]) -> None:
         try:
             self.store.mark_running(job_id)
-            with ThreadPoolExecutor(max_workers=min(self.max_workers, max(1, len(files)))) as executor:
-                futures = {
-                    executor.submit(self._parse_document, file): file
-                    for file in files
-                }
-                for future in as_completed(futures):
-                    source = futures[future]
-                    try:
-                        response = future.result()
-                        result = JobFileResult(
-                            filename=response.filename,
-                            status="completed",
-                            pages=response.pages,
-                            warnings=response.warnings,
-                            extracted_data=response.extracted_data,
-                            metadata=response.metadata,
-                        )
-                    except ParserError as exc:
-                        result = JobFileResult(
-                            filename=source.filename,
-                            status="failed",
-                            error_code=exc.code,
-                            error=exc.message,
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        logger.exception(
-                            "Unhandled parser error for job %s file %s",
-                            job_id,
-                            source.filename,
-                        )
-                        result = JobFileResult(
-                            filename=source.filename,
-                            status="failed",
-                            error_code="INTERNAL_ERROR",
-                            error=str(exc),
-                        )
-                    self.store.store_file_result(job_id, result)
+            for file in files:
+                result = self._parse_job_file(job_id, file)
+                self.store.store_file_result(job_id, result)
             self.store.mark_completed(job_id)
         except ParserError as exc:
             self.store.mark_failed(job_id, exc.message, exc.code)
@@ -258,6 +276,37 @@ class JobService:
             logger.exception("Unhandled job error for job %s", job_id)
             self.store.mark_failed(job_id, str(exc), "INTERNAL_ERROR")
         self._send_callback(job_id)
+
+    def _parse_job_file(self, job_id: str, file: UploadedDocument) -> JobFileResult:
+        try:
+            response = self._parse_document(file)
+            return JobFileResult(
+                filename=response.filename,
+                status="completed",
+                pages=response.pages,
+                warnings=response.warnings,
+                extracted_data=response.extracted_data,
+                metadata=response.metadata,
+            )
+        except ParserError as exc:
+            return JobFileResult(
+                filename=file.filename,
+                status="failed",
+                error_code=exc.code,
+                error=exc.message,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "Unhandled parser error for job %s file %s",
+                job_id,
+                file.filename,
+            )
+            return JobFileResult(
+                filename=file.filename,
+                status="failed",
+                error_code="INTERNAL_ERROR",
+                error=str(exc),
+            )
 
     def _send_callback(self, job_id: str) -> None:
         record = self.store.get(job_id)
@@ -304,9 +353,7 @@ class JobService:
 
     def _parse_document(self, file: UploadedDocument) -> ParseResponse:
         with self._parse_lock:
-            if self._parse_service is None:
-                self._parse_service = ParseDocumentService()
-            return self._parse_service.run(
+            return self._get_parse_service().run(
                 filename=file.filename,
                 content=file.content,
                 content_type=file.content_type,

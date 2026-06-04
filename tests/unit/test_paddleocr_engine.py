@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
+from threading import Barrier, Lock
 from time import sleep
 import logging
 
@@ -60,8 +60,7 @@ def test_paddleocr_engine_serializes_shared_reader_inference(monkeypatch) -> Non
     assert reader.max_active_calls == 1
 
 
-def test_paddleocr_engine_initializes_reader_once_under_concurrency(monkeypatch) -> None:
-    reader = BlockingReader()
+def test_paddleocr_engine_uses_thread_local_readers(monkeypatch) -> None:
     engine = PaddleOCREngine()
     create_calls = 0
     create_lock = Lock()
@@ -71,16 +70,24 @@ def test_paddleocr_engine_initializes_reader_once_under_concurrency(monkeypatch)
         sleep(0.02)
         with create_lock:
             create_calls += 1
+            reader_number = create_calls
+        reader = BlockingReader()
+        reader.reader_number = reader_number
         return reader
 
     monkeypatch.setattr(engine, "_create_reader", create_reader)
+    barrier = Barrier(2)
+
+    def get_reader():
+        barrier.wait(timeout=1.0)
+        return engine._get_reader()
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [executor.submit(engine._get_reader) for _ in range(2)]
+        futures = [executor.submit(get_reader) for _ in range(2)]
         readers = [future.result() for future in futures]
 
-    assert readers == [reader, reader]
-    assert create_calls == 1
+    assert readers[0] is not readers[1]
+    assert create_calls == 2
 
 
 def test_paddleocr_engine_warmup_initializes_reader(monkeypatch) -> None:
@@ -101,25 +108,20 @@ def test_paddleocr_engine_warmup_initializes_reader(monkeypatch) -> None:
     assert create_calls == 1
 
 
-def test_paddleocr_engine_reuses_reader_across_instances_under_concurrency(monkeypatch) -> None:
+def test_paddleocr_engine_reuses_reader_across_instances_in_same_thread(monkeypatch) -> None:
     reader = BlockingReader()
     create_calls = 0
-    create_lock = Lock()
 
     def create_reader(self):
         nonlocal create_calls
         del self
-        sleep(0.02)
-        with create_lock:
-            create_calls += 1
+        create_calls += 1
         return reader
 
     monkeypatch.setattr(PaddleOCREngine, "_create_reader", create_reader)
     engines = [PaddleOCREngine(), PaddleOCREngine()]
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [executor.submit(engine._get_reader) for engine in engines]
-        readers = [future.result() for future in futures]
+    readers = [engine._get_reader() for engine in engines]
 
     assert readers == [reader, reader]
     assert create_calls == 1

@@ -5,15 +5,13 @@ from egd_parser.api.routes import health
 from egd_parser.infrastructure.settings import get_settings
 
 
-class _FakeEngine:
+class _FakeJobService:
     def __init__(self) -> None:
         self.warmed_up = False
 
-    def warmup(self):
+    def warmup(self, timeout=None):
+        assert timeout == 60.0
         self.warmed_up = True
-
-    def recognize(self, pages):
-        return []
 
 
 def test_read_meminfo(tmp_path: Path) -> None:
@@ -40,20 +38,14 @@ def test_read_meminfo(tmp_path: Path) -> None:
 
 def test_deep_healthcheck_initializes_ocr(monkeypatch) -> None:
     settings = get_settings()
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(settings=settings)))
-    called = {"value": False}
-    engine = _FakeEngine()
+    job_service = _FakeJobService()
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(settings=settings, job_service=job_service))
+    )
 
-    def fake_create_ocr_engine(received_settings):
-        assert received_settings is settings
-        called["value"] = True
-        return engine
-
-    monkeypatch.setattr(health, "create_ocr_engine", fake_create_ocr_engine)
     monkeypatch.setattr(health.shutil, "which", lambda command: "/usr/bin/pdftoppm")
 
     response = health.deep_healthcheck(request)
 
     assert response.status_code == 200
-    assert called["value"] is True
-    assert engine.warmed_up is True
+    assert job_service.warmed_up is True

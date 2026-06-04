@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from threading import Event, Lock
+from threading import Event, Lock, get_ident
 from time import monotonic, sleep
 
 from egd_parser.api.schemas.response import ParseResponse
@@ -67,3 +67,44 @@ def test_job_service_limits_active_jobs() -> None:
     wait_for_status(service, second_status.job_id, "completed")
     assert service.max_active_parses == 1
     assert service.get_metrics()["max_active_jobs"] == 1
+    service.shutdown()
+
+
+class WarmupRecordingParseService:
+    def __init__(self) -> None:
+        self.thread_ids: list[int] = []
+
+    def warmup(self) -> None:
+        self.thread_ids.append(get_ident())
+
+    def run(self, filename: str, content: bytes, content_type: str | None = None) -> ParseResponse:
+        del content, content_type
+        self.thread_ids.append(get_ident())
+        return ParseResponse(filename=filename, pages=1, extracted_data={})
+
+
+class WarmupRecordingJobService(JobService):
+    def __init__(self, parse_service: WarmupRecordingParseService) -> None:
+        self.recording_parse_service = parse_service
+        super().__init__(store=InMemoryJobStore(), max_workers=1, max_active_jobs=1)
+
+    def _get_parse_service(self):
+        return self.recording_parse_service
+
+    def _send_callback(self, job_id: str) -> None:
+        del job_id
+
+
+def test_job_service_warmup_and_parse_run_on_same_worker_thread() -> None:
+    parse_service = WarmupRecordingParseService()
+    service = WarmupRecordingJobService(parse_service)
+    document = UploadedDocument(filename="sample.pdf", content=b"%PDF-1.3", content_type="application/pdf")
+
+    service.warmup(timeout=2.0)
+    status = service.enqueue_job([document])
+    wait_for_status(service, status.job_id, "completed")
+
+    assert len(parse_service.thread_ids) == 2
+    assert parse_service.thread_ids[0] == parse_service.thread_ids[1]
+    assert parse_service.thread_ids[0] != get_ident()
+    service.shutdown()

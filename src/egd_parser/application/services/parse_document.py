@@ -8,6 +8,11 @@ class ParseDocumentService:
     def __init__(self) -> None:
         self.pipeline: PipelineRunner | None = None
 
+    def warmup(self) -> None:
+        if self.pipeline is None:
+            self.pipeline = PipelineRunner()
+        self.pipeline.ocr.warmup()
+
     def run(self, filename: str, content: bytes, content_type: str | None = None) -> ParseResponse:
         self._validate_pdf(filename, content, content_type)
         if self.pipeline is None:

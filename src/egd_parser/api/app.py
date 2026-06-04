@@ -14,7 +14,6 @@ from egd_parser.api.routes.parse import router as parse_router
 from egd_parser.application.services.job_service import JobService
 from egd_parser.infrastructure.housekeeping import cleanup_rendered_pages
 from egd_parser.infrastructure.logging.setup import configure_logging
-from egd_parser.infrastructure.ocr.factory import create_ocr_engine
 from egd_parser.infrastructure.storage import SQLiteJobStore
 from egd_parser.infrastructure.storage.upload_store import UploadStore
 from egd_parser.infrastructure.settings import get_settings
@@ -51,9 +50,10 @@ async def lifespan(app: FastAPI):
         settings.rendered_pages_retention_hours,
     )
     if settings.ocr_preload:
-        create_ocr_engine(settings).warmup()
+        app.state.job_service.warmup()
     logger.info("startup_completed", extra={"deleted_rendered_pages": deleted})
     yield
+    app.state.job_service.shutdown()
     deleted = cleanup_rendered_pages(
         settings.rendered_pages_dir,
         settings.rendered_pages_retention_hours,

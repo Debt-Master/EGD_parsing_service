@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from threading import Lock
+from threading import Lock, get_ident
 from time import sleep
 
 from egd_parser.application.errors import ParserError
@@ -43,7 +43,7 @@ class PaddleOCREngine(OCREngine):
         self.rec_model_dir = rec_model_dir
         self.textline_orientation_model_dir = textline_orientation_model_dir
         self.pdx_cache_home = pdx_cache_home
-        self._reader_key = (
+        self._reader_config_key = (
             self.language,
             self.use_angle_cls,
             self.base_dir,
@@ -166,24 +166,28 @@ class PaddleOCREngine(OCREngine):
 
     def _invalidate_reader(self, reader) -> None:
         with self._reader_lock:
-            current_reader = self._shared_readers.get(self._reader_key)
+            current_reader = self._shared_readers.get(self._reader_key())
             if current_reader is reader:
-                self._shared_readers.pop(self._reader_key, None)
+                self._shared_readers.pop(self._reader_key(), None)
 
     def _get_reader(self):
-        reader = self._shared_readers.get(self._reader_key)
+        reader_key = self._reader_key()
+        reader = self._shared_readers.get(reader_key)
         if reader is not None:
             return reader
 
         with self._reader_lock:
-            reader = self._shared_readers.get(self._reader_key)
+            reader = self._shared_readers.get(reader_key)
             if reader is not None:
                 return reader
 
             reader = self._create_reader_with_retries()
-            self._shared_readers[self._reader_key] = reader
+            self._shared_readers[reader_key] = reader
 
         return reader
+
+    def _reader_key(self) -> tuple[object, ...]:
+        return (*self._reader_config_key, get_ident())
 
     def _create_reader_with_retries(self):
         attempts = 3

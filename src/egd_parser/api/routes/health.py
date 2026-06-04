@@ -6,7 +6,6 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from egd_parser.application.errors import ParserError
-from egd_parser.infrastructure.ocr.factory import create_ocr_engine
 
 router = APIRouter(tags=["health"])
 
@@ -35,8 +34,7 @@ def deep_healthcheck(request: Request) -> JSONResponse:
     }
 
     try:
-        engine = create_ocr_engine(settings)
-        engine.warmup()
+        request.app.state.job_service.warmup(timeout=60.0)
         payload["checks"]["ocr_init"] = {
             "status": "ok",
             "engine": settings.ocr_engine,
