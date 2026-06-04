@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from threading import Lock
@@ -9,6 +10,8 @@ from egd_parser.domain.models.page import PageImage
 from egd_parser.domain.ports.ocr_engine import OCREngine
 from egd_parser.domain.value_objects.bbox import BoundingBox
 from egd_parser.utils.text import normalize_whitespace
+
+logger = logging.getLogger(__name__)
 
 
 class PaddleOCREngine(OCREngine):
@@ -120,6 +123,15 @@ class PaddleOCREngine(OCREngine):
         except ParserError:
             raise
         except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "PaddleOCR inference failed for %s; invalidating reader and retrying",
+                image_path,
+                extra={
+                    "image_path": image_path,
+                    "error": str(exc)[:1000],
+                },
+                exc_info=True,
+            )
             self._invalidate_reader(reader)
             sleep(0.2)
             recovered_reader = self._get_reader()
@@ -128,6 +140,15 @@ class PaddleOCREngine(OCREngine):
             except ParserError:
                 raise
             except Exception as retry_exc:  # noqa: BLE001
+                logger.exception(
+                    "PaddleOCR inference failed for %s after reader recovery",
+                    image_path,
+                    extra={
+                        "image_path": image_path,
+                        "error": str(retry_exc)[:1000],
+                        "previous_error": str(exc)[:1000],
+                    },
+                )
                 self._invalidate_reader(recovered_reader)
                 raise ParserError(
                     "OCR_INFERENCE_FAILED",

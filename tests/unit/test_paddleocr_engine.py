@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from time import sleep
+import logging
 
 import pytest
 
@@ -159,7 +160,7 @@ def test_paddleocr_engine_reports_missing_model_files(tmp_path) -> None:
     assert exc_info.value.details["models"]["text_recognition_model_dir"]["path"] == str(rec_dir)
 
 
-def test_paddleocr_engine_recovers_from_transient_inference_failure(monkeypatch) -> None:
+def test_paddleocr_engine_recovers_from_transient_inference_failure(monkeypatch, caplog) -> None:
     failing_reader = FailingReader(RuntimeError("std::exception"))
     recovered_reader = BlockingReader()
     readers = [failing_reader, recovered_reader]
@@ -171,10 +172,14 @@ def test_paddleocr_engine_recovers_from_transient_inference_failure(monkeypatch)
     monkeypatch.setattr(engine, "_create_reader", create_reader)
     monkeypatch.setattr("egd_parser.infrastructure.ocr.paddleocr_engine.sleep", lambda delay: None)
 
+    caplog.set_level(logging.WARNING)
     results = engine.recognize([PageImage(number=1, image_path="/tmp/page.png")])
 
     assert len(results) == 1
     assert engine._get_reader() is recovered_reader
+    assert "PaddleOCR inference failed for /tmp/page.png; invalidating reader and retrying" in caplog.text
+    assert "std::exception" in caplog.text
+    assert "/tmp/page.png" in caplog.text
 
 
 def test_paddleocr_engine_reports_inference_failure_after_retry(monkeypatch) -> None:
