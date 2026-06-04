@@ -110,6 +110,9 @@ class PaddleOCREngine(OCREngine):
 
         return results
 
+    def warmup(self) -> None:
+        self._get_reader()
+
     def _run_ocr_with_recovery(self, image_path: str):
         reader = self._get_reader()
         try:

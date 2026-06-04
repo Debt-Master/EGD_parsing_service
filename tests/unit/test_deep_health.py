@@ -6,6 +6,12 @@ from egd_parser.infrastructure.settings import get_settings
 
 
 class _FakeEngine:
+    def __init__(self) -> None:
+        self.warmed_up = False
+
+    def warmup(self):
+        self.warmed_up = True
+
     def recognize(self, pages):
         return []
 
@@ -36,11 +42,12 @@ def test_deep_healthcheck_initializes_ocr(monkeypatch) -> None:
     settings = get_settings()
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(settings=settings)))
     called = {"value": False}
+    engine = _FakeEngine()
 
     def fake_create_ocr_engine(received_settings):
         assert received_settings is settings
         called["value"] = True
-        return _FakeEngine()
+        return engine
 
     monkeypatch.setattr(health, "create_ocr_engine", fake_create_ocr_engine)
     monkeypatch.setattr(health.shutil, "which", lambda command: "/usr/bin/pdftoppm")
@@ -49,3 +56,4 @@ def test_deep_healthcheck_initializes_ocr(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert called["value"] is True
+    assert engine.warmed_up is True

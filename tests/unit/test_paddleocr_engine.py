@@ -82,6 +82,24 @@ def test_paddleocr_engine_initializes_reader_once_under_concurrency(monkeypatch)
     assert create_calls == 1
 
 
+def test_paddleocr_engine_warmup_initializes_reader(monkeypatch) -> None:
+    reader = BlockingReader()
+    engine = PaddleOCREngine()
+    create_calls = 0
+
+    def create_reader():
+        nonlocal create_calls
+        create_calls += 1
+        return reader
+
+    monkeypatch.setattr(engine, "_create_reader", create_reader)
+
+    engine.warmup()
+
+    assert engine._get_reader() is reader
+    assert create_calls == 1
+
+
 def test_paddleocr_engine_reuses_reader_across_instances_under_concurrency(monkeypatch) -> None:
     reader = BlockingReader()
     create_calls = 0

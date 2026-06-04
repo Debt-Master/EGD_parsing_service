@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
         settings.rendered_pages_retention_hours,
     )
     if settings.ocr_preload:
-        create_ocr_engine(settings).recognize([])
+        create_ocr_engine(settings).warmup()
     logger.info("startup_completed", extra={"deleted_rendered_pages": deleted})
     yield
     deleted = cleanup_rendered_pages(

@@ -60,6 +60,9 @@ class EasyOCREngine(OCREngine):
 
         return results
 
+    def warmup(self) -> None:
+        self._get_reader()
+
     def _get_reader(self):
         if self._reader is None:
             import easyocr

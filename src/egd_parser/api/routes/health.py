@@ -36,7 +36,7 @@ def deep_healthcheck(request: Request) -> JSONResponse:
 
     try:
         engine = create_ocr_engine(settings)
-        engine.recognize([])
+        engine.warmup()
         payload["checks"]["ocr_init"] = {
             "status": "ok",
             "engine": settings.ocr_engine,
