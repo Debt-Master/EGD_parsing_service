@@ -101,3 +101,76 @@ def test_primary_tenant_gets_occupancy_status_from_settlement_type():
     assert tenant["registration_status"] == "registered"
     assert tenant["settlement_type"] == "социальный наем"
     assert tenant["occupancy_status"] == "социальный наем"
+
+
+def test_owner_is_enriched_from_matching_registered_person():
+    response = _make_response(passport={})
+    response["extracted_data"]["page_2"] = {
+        "registered_persons_constantly": {
+            "persons": [{
+                "full_name": "Иванов Иван Иванович",
+                "birthday_date": "01.02.1980",
+                "registration_status": "unregistered",
+                "passport": {
+                    "document_type": "паспорт",
+                    "series": "45 10",
+                    "number": "123456",
+                    "issued_by": "ОВД Марьино",
+                    "issue_date": "03.04.2000",
+                },
+                "departure": {
+                    "status": "departed",
+                    "reason": "death",
+                    "death_date": "05.06.2025",
+                },
+            }]
+        }
+    }
+
+    persons = normalize(response)["persons"]
+    owner = next(person for person in persons if person["role"] == "owner")
+
+    assert owner["birthday_date"] == "01.02.1980"
+    assert owner["registration_status"] == "without_registration"
+    assert owner["identity"]["series"] == "45 10"
+    assert owner["occupancy_status"] == "deceased"
+    assert owner["departure"] == {
+        "status": "departed",
+        "reason": "death",
+        "death_date": "05.06.2025",
+        "departure_date": None,
+    }
+    assert [person["full_name"] for person in persons].count("\u0418\u0432\u0430\u043d\u043e\u0432 \u0418\u0432\u0430\u043d \u0418\u0432\u0430\u043d\u043e\u0432\u0438\u0447") == 1
+
+
+def test_compound_surname_is_kept_in_structured_name():
+    response = _make_response(owners=[{
+        "full_name": "\u0414\u0435 \u0411\u0443\u0430\u0440\u0434 \u0413\u0430\u043b\u0438\u043d\u0430 \u041f\u0435\u0442\u0440\u043e\u0432\u043d\u0430",
+        "ownership_share": "50.00",
+    }])
+
+    owner = normalize(response)["persons"][0]
+
+    assert owner["last_name"] == "\u0414\u0435 \u0411\u0443\u0430\u0440\u0434"
+    assert owner["first_name"] == "\u0413\u0430\u043b\u0438\u043d\u0430"
+    assert owner["middle_name"] == "\u041f\u0435\u0442\u0440\u043e\u0432\u043d\u0430"
+
+
+def test_temporary_registered_person_has_distinct_status():
+    response = _make_response()
+    response["extracted_data"]["page_2"] = {
+        "registered_persons_temporary": {
+            "persons": [{
+                "full_name": "Временный Житель Петрович",
+                "birthday_date": "10.11.1990",
+                "registration_status": "registered",
+            }]
+        }
+    }
+
+    temporary = next(
+        person for person in normalize(response)["persons"]
+        if person["role"] == "registered_temporary"
+    )
+
+    assert temporary["registration_status"] == "temporary"

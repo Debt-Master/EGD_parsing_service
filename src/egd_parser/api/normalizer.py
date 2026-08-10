@@ -8,6 +8,12 @@ def _split_name(full_name: str | None) -> dict[str, str | None]:
     if not full_name:
         return {"last_name": None, "first_name": None, "middle_name": None}
     parts = full_name.strip().split()
+    if len(parts) > 3:
+        return {
+            "last_name": " ".join(parts[:-2]),
+            "first_name": parts[-2],
+            "middle_name": parts[-1],
+        }
     return {
         "last_name": parts[0] if len(parts) > 0 else None,
         "first_name": parts[1] if len(parts) > 1 else None,
@@ -38,18 +44,55 @@ def _normalize_departure(dep: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _canonical_name(value: str | None) -> str:
+    return " ".join(str(value or "").replace("ё", "е").lower().split())
+
+
+def _registration_status(value: str | None, *, temporary: bool = False) -> str:
+    if temporary:
+        return "temporary"
+    normalized = str(value or "").strip().lower()
+    if normalized in {"unregistered", "without_registration"}:
+        return "without_registration"
+    return normalized or "registered"
+
+
+def _occupancy_status(departure: dict[str, Any] | None) -> str | None:
+    if not departure or not departure.get("status"):
+        return None
+    if departure.get("reason") == "death":
+        return "deceased"
+    return departure.get("status")
+
+
+def _build_page2_person_index(page_2: dict[str, Any]) -> dict[str, tuple[dict[str, Any], bool]]:
+    persons: dict[str, tuple[dict[str, Any], bool]] = {}
+    for block_name, temporary in (
+        ("registered_persons_constantly", False),
+        ("registered_persons_temporary", True),
+    ):
+        for person in page_2.get(block_name, {}).get("persons", []):
+            key = _canonical_name(person.get("full_name"))
+            if key and (key not in persons or not temporary):
+                persons[key] = (person, temporary)
+    return persons
+
+
 def _build_registration_status_index(page_2: dict[str, Any]) -> dict[str, str]:
     statuses: dict[str, str] = {}
     for reg_type, default_status in [
         ("registered_persons_constantly", "registered"),
-        ("registered_persons_temporary", "registered"),
+        ("registered_persons_temporary", "temporary"),
     ]:
         block = page_2.get(reg_type, {})
         for person in block.get("persons", []):
             full_name = person.get("full_name")
             if not full_name:
                 continue
-            statuses[full_name] = person.get("registration_status") or default_status
+            statuses[full_name] = _registration_status(
+                person.get("registration_status") or default_status,
+                temporary=reg_type == "registered_persons_temporary",
+            )
     return statuses
 
 
@@ -72,21 +115,37 @@ def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
     page_1 = data.get("page_1", {})
     page_2 = data.get("page_2", {})
     registration_statuses = _build_registration_status_index(page_2)
+    page2_persons = _build_page2_person_index(page_2)
     settlement_type = page_1.get("settlement_type")
+    primary_roles = {
+        _canonical_name(owner.get("full_name"))
+        for owner in page_1.get("owners", [])
+        if owner.get("full_name")
+    }
+    if page_1.get("primary_tenant"):
+        primary_roles.add(_canonical_name(page_1["primary_tenant"]))
 
     passport = page_1.get("passport", {})
     for i, owner in enumerate(page_1.get("owners", [])):
+        matched, is_temporary = page2_persons.get(_canonical_name(owner.get("full_name")), ({}, False))
+        matched_departure = _normalize_departure(matched.get("departure"))
+        owner_identity = _normalize_identity(matched.get("passport"))
+        if i == 0 and _normalize_identity(passport):
+            owner_identity = _normalize_identity(passport)
         person = {
             "role": "owner",
-            "registration_status": registration_statuses.get(owner.get("full_name"), "unknown"),
+            "registration_status": _registration_status(
+                registration_statuses.get(owner.get("full_name"), matched.get("registration_status")),
+                temporary=is_temporary,
+            ) if matched else "unknown",
             "settlement_type": settlement_type,
-            "occupancy_status": None,
+            "occupancy_status": _occupancy_status(matched_departure),
             "full_name": owner.get("full_name"),
             **_split_name(owner.get("full_name")),
-            "birthday_date": None,
+            "birthday_date": matched.get("birthday_date"),
             "ownership_share": owner.get("ownership_share"),
-            "identity": _normalize_identity(passport) if i == 0 else None,
-            "departure": None,
+            "identity": owner_identity,
+            "departure": matched_departure,
         }
         persons.append(person)
 
@@ -110,17 +169,26 @@ def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
     ]:
         block = page_2.get(reg_type, {})
         for p in block.get("persons", []):
+            # An owner/tenant is already represented by its primary legal role and
+            # enriched from this page-2 row above.  Do not emit a second person that
+            # downstream systems could incorrectly treat as another debtor.
+            if _canonical_name(p.get("full_name")) in primary_roles:
+                continue
+            departure = _normalize_departure(p.get("departure"))
             persons.append({
                 "role": role,
-                "registration_status": p.get("registration_status") or "registered",
+                "registration_status": _registration_status(
+                    p.get("registration_status"),
+                    temporary=reg_type == "registered_persons_temporary",
+                ),
                 "settlement_type": settlement_type,
-                "occupancy_status": None,
+                "occupancy_status": _occupancy_status(departure),
                 "full_name": p.get("full_name"),
                 **_split_name(p.get("full_name")),
                 "birthday_date": p.get("birthday_date"),
                 "ownership_share": None,
                 "identity": _normalize_identity(p.get("passport")),
-                "departure": _normalize_departure(p.get("departure")),
+                "departure": departure,
             })
 
     return persons

@@ -46,6 +46,7 @@
 Синхронный разбор:
 
 - `POST /api/v1/parse`
+- `POST /api/v1/parse/normalized` — разбор в единый формат для callback/backend
 - multipart field: `file`
 
 Асинхронные jobs:
@@ -242,6 +243,23 @@ curl http://localhost:8000/api/v1/jobs/<job_id>/results
 - формат `person` фиксированный и одинаковый для всех документов
 - ключи `passport` и `departure` возвращаются всегда
 - если данных нет, соответствующие значения будут `null`
+
+### Единый формат `/parse/normalized` и callback
+
+Массив `persons[]` содержит одну запись на физическое лицо. Если
+собственник или наниматель также есть в таблице второй страницы, его
+основная запись обогащается датой рождения, `identity`, `departure` и
+статусами; дублирующая запись зарегистрированного лица не создается.
+
+Ключевые поля `persons[]`:
+
+- `role`: `owner`, `tenant`, `registered_permanent` или `registered_temporary`;
+- `registration_status`: `registered`, `temporary`, `without_registration` или `unknown`;
+- `occupancy_status`: `deceased`, `departed` или `null`;
+- `birthday_date`, `identity`, `departure`, `ownership_share` — если данные есть в ЕЖД.
+
+Временная регистрация не приравнивается к постоянной: для неё всегда
+возвращаются `role: registered_temporary` и `registration_status: temporary`.
 
 Структура `person.passport` фиксированная для всех типов документов.
 

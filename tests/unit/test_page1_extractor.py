@@ -68,6 +68,24 @@ def test_extract_page1_from_sample_text() -> None:
     assert page_1["total_area_sq_m"] == "51.60"
 
 
+def test_extract_page1_supports_compound_owner_surname() -> None:
+    text = """
+    Вид заселения:
+    частная собственность
+    Ф. И. О. владельца права собственности Доля в праве собственности, %
+    Фессенден Людмила Викторовна 50,00
+    Де Буард Галина Петровна 50,00
+    на основании:
+    """
+
+    page_1 = extract_page1([OCRPageResult(page_number=1, text=text)])["page_1"]
+
+    assert page_1["owners"] == [
+        {"full_name": "Фессенден Людмила Викторовна", "ownership_share": "50.00"},
+        {"full_name": "Де Буард Галина Петровна", "ownership_share": "50.00"},
+    ]
+
+
 def test_extract_passport_data_from_sample_text() -> None:
     text = """
     Паспортные данные:

@@ -35,7 +35,7 @@ DOC_START_RE = re.compile(
     re.IGNORECASE,
 )
 OWNER_RE = re.compile(
-    r"^([А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё-]+){2})\s+"
+    r"^([А-ЯЁ][А-ЯЁа-яё'`’-]+(?:\s+[А-ЯЁ][А-ЯЁа-яё'`’-]+){2,})\s+"
     r"(без\s+опред\.?\s+долей|[0-9]+(?:[,.][0-9]{1,2})?)$"
 )
 
@@ -362,7 +362,7 @@ def extract_owners(text: str, settlement_type: str | None = None) -> list[dict]:
 
     for line in lines:
         match = re.match(
-            r"^(?P<full_name>[А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё-]+){2})\s+(?P<share>.+)$",
+            r"^(?P<full_name>[А-ЯЁ][А-ЯЁа-яё'`’-]+(?:\s+[А-ЯЁ][А-ЯЁа-яё'`’-]+){2,})\s+(?P<share>.+)$",
             line,
         )
         if match and is_share_line(match.group("share")):
