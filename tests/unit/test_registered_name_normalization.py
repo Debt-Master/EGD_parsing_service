@@ -16,6 +16,7 @@ def test_normalize_registered_full_name_applies_confirmed_overrides() -> None:
     assert normalize_registered_full_name("Амбарцумян Роберт Арменакоб") == "Амбарцумян Арианна Арменаковна"
     assert normalize_registered_full_name("Григорян Айрин") == "Григорян Айрин Романовна"
     assert normalize_registered_full_name("Ахмади Фришта Афгани-") == "Ахмади Фришта"
+    assert normalize_registered_full_name("Юсков Владимир Дми") == "Юсков Владимир Дмитриевич"
 
 
 def test_find_best_candidate_name_repairs_single_ocr_substitution_in_surname() -> None:

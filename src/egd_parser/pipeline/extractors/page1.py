@@ -35,7 +35,7 @@ DOC_START_RE = re.compile(
     re.IGNORECASE,
 )
 OWNER_RE = re.compile(
-    r"^([А-ЯЁ][А-ЯЁа-яё'`’-]+(?:\s+[А-ЯЁ][А-ЯЁа-яё'`’-]+){2,})\s+"
+    r"^([А-ЯЁ][А-ЯЁа-яё'`’-]+(?:\s+(?:[А-ЯЁ][А-ЯЁа-яё'`’-]+|оглы|кызы|улы|уулу)){2,})\s+"
     r"(без\s+опред\.?\s+долей|[0-9]+(?:[,.][0-9]{1,2})?)$"
 )
 
@@ -362,7 +362,7 @@ def extract_owners(text: str, settlement_type: str | None = None) -> list[dict]:
 
     for line in lines:
         match = re.match(
-            r"^(?P<full_name>[А-ЯЁ][А-ЯЁа-яё'`’-]+(?:\s+[А-ЯЁ][А-ЯЁа-яё'`’-]+){2,})\s+(?P<share>.+)$",
+            r"^(?P<full_name>[А-ЯЁ][А-ЯЁа-яё'`’-]+(?:\s+(?:[А-ЯЁ][А-ЯЁа-яё'`’-]+|оглы|кызы|улы|уулу)){2,})\s+(?P<share>.+)$",
             line,
         )
         if match and is_share_line(match.group("share")):
@@ -515,6 +515,7 @@ def normalize_street(value: str) -> str:
     street = re.sub(r"\bul\.\b", "ул.", street, flags=re.IGNORECASE)
     street = re.sub(r"^ul\.\s+", "ул. ", street, flags=re.IGNORECASE)
     street = re.sub(r"^uл\.\s+", "ул. ", street, flags=re.IGNORECASE)
+    street = re.sub(r"^ул\.\s+л\.\s+", "ул. ", street, flags=re.IGNORECASE)
     street = street.rstrip(":;,")
     street = re.split(r"\b(?:дом|корп\.?|строение|кв\.?)\b", street, maxsplit=1, flags=re.IGNORECASE)[0].strip(" ,;:")
     street = re.sub(r"\bул\s+\.", "ул.", street, flags=re.IGNORECASE)
@@ -536,6 +537,10 @@ def normalize_street(value: str) -> str:
             break
     street = re.sub(r"^ул(?:ица)?\.?\s+", "ул. ", street, flags=re.IGNORECASE)
     street = re.sub(r"^ул\.\s+ул\.\s+", "ул. ", street, flags=re.IGNORECASE)
+    # OCR can read the left-hand street marker as a standalone "л." while
+    # preserving the right-hand "ул." marker ("л. Подольская ул.").  The
+    # suffix normalization above then produces "ул. л. Подольская".
+    street = re.sub(r"^ул\.\s+л\.\s+", "ул. ", street, flags=re.IGNORECASE)
     street = re.sub(r"^просп(?:ект)?\.?\s+", "пр-кт ", street, flags=re.IGNORECASE)
     street = re.sub(r"^пр-кт\s+пр-кт\s+", "пр-кт ", street, flags=re.IGNORECASE)
     street = re.sub(r"(?:\s|,)+ул(?:ица)?\.?$", "", street, flags=re.IGNORECASE)
@@ -796,7 +801,12 @@ def is_property_street_line(value: str) -> bool:
 
 
 def is_full_name(value: str) -> bool:
-    return bool(re.fullmatch(r"[А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё-]+){2}", value))
+    return bool(
+        re.fullmatch(
+            r"[А-ЯЁ][а-яё-]+(?:\s+(?:[А-ЯЁ][а-яё-]+|оглы|кызы|улы|уулу)){2,}",
+            value,
+        )
+    )
 
 
 def is_share_line(value: str) -> bool:

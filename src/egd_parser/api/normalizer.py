@@ -8,6 +8,12 @@ def _split_name(full_name: str | None) -> dict[str, str | None]:
     if not full_name:
         return {"last_name": None, "first_name": None, "middle_name": None}
     parts = full_name.strip().split()
+    if len(parts) > 3 and parts[-1].lower() in {"оглы", "кызы", "улы", "уулу"}:
+        return {
+            "last_name": parts[0],
+            "first_name": parts[1],
+            "middle_name": " ".join(parts[2:]),
+        }
     if len(parts) > 3:
         return {
             "last_name": " ".join(parts[:-2]),
@@ -126,11 +132,12 @@ def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
         primary_roles.add(_canonical_name(page_1["primary_tenant"]))
 
     passport = page_1.get("passport", {})
-    for i, owner in enumerate(page_1.get("owners", [])):
+    owners = page_1.get("owners", [])
+    for owner in owners:
         matched, is_temporary = page2_persons.get(_canonical_name(owner.get("full_name")), ({}, False))
         matched_departure = _normalize_departure(matched.get("departure"))
         owner_identity = _normalize_identity(matched.get("passport"))
-        if i == 0 and _normalize_identity(passport):
+        if len(owners) == 1 and owner_identity is None and _normalize_identity(passport):
             owner_identity = _normalize_identity(passport)
         person = {
             "role": "owner",

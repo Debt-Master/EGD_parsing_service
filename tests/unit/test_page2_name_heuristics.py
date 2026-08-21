@@ -38,6 +38,11 @@ def test_normalize_name_text_repairs_latin_s_in_mixed_surname() -> None:
     assert normalize_name_text("Seменов Никита Анатольевич") == "Семенов Никита Анатольевич"
 
 
+def test_normalize_name_text_repairs_transliterated_rumakov_fragments() -> None:
+    assert normalize_name_text("Рuмakов Кирилl Михайлович") == "Румаков Кирилл Михайлович"
+    assert normalize_name_text("Рumakov Олег Михайлович") == "Румаков Олег Михайлович"
+
+
 def test_merge_split_name_parts_repairs_hyphenated_patronymic_tail() -> None:
     assert merge_split_name_parts(["Николаев-", "Ha"]) == ["Николаевна"]
 

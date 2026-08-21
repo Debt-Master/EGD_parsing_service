@@ -174,3 +174,28 @@ def test_temporary_registered_person_has_distinct_status():
     )
 
     assert temporary["registration_status"] == "temporary"
+
+
+def test_patronymic_suffix_is_kept_in_structured_name():
+    response = _make_response(owners=[{
+        "full_name": "Пириев Хайям Идрис оглы",
+        "ownership_share": "25.00",
+    }])
+
+    owner = normalize(response)["persons"][0]
+
+    assert owner["last_name"] == "Пириев"
+    assert owner["first_name"] == "Хайям"
+    assert owner["middle_name"] == "Идрис оглы"
+
+
+def test_page1_passport_is_not_assigned_to_first_of_multiple_owners():
+    response = _make_response(owners=[
+        {"full_name": "Первый Собственник Петрович", "ownership_share": "50.00"},
+        {"full_name": "Второй Собственник Иванович", "ownership_share": "50.00"},
+    ])
+
+    owners = [person for person in normalize(response)["persons"] if person["role"] == "owner"]
+
+    assert owners[0]["identity"] is None
+    assert owners[1]["identity"] is None

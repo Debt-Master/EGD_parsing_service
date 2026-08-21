@@ -86,6 +86,49 @@ def test_extract_page1_supports_compound_owner_surname() -> None:
     ]
 
 
+def test_extract_page1_supports_patronymic_suffix_and_separate_share_lines() -> None:
+    text = """
+    Вид заселения:
+    частная собственность
+    Доля в праве собственности, %
+    Ф. И. О. владельца права собственности
+    25,00
+    Пириев Хайям Идрис оглы
+    41,67
+    Абдулов Абдулахад Вагабович
+    16,67
+    Качаева Элина Бургановна
+    16,67
+    Алиев Сарибек Хамирзаевич
+    на основании:
+    """
+
+    owners = extract_page1([OCRPageResult(page_number=1, text=text)])["page_1"]["owners"]
+
+    assert owners == [
+        {"full_name": "Пириев Хайям Идрис оглы", "ownership_share": "25.00"},
+        {"full_name": "Абдулов Абдулахад Вагабович", "ownership_share": "41.67"},
+        {"full_name": "Качаева Элина Бургановна", "ownership_share": "16.67"},
+        {"full_name": "Алиев Сарибек Хамирзаевич", "ownership_share": "16.67"},
+    ]
+
+
+def test_extract_page1_normalizes_split_street_prefix() -> None:
+    text = """
+    Заявитель зарегистрирован по месту жительства:
+    л. Подольская ул. дом № 33 кв. 30
+    Прежнее наименование адреса:
+    Вид заселения:
+    социальный наем
+    """
+
+    address = extract_page1([OCRPageResult(page_number=1, text=text)])["page_1"]["property_address"]
+
+    assert address["street"] == "ул. Подольская"
+    assert address["house"] == "33"
+    assert address["apartment"] == "30"
+
+
 def test_extract_passport_data_from_sample_text() -> None:
     text = """
     Паспортные данные:
