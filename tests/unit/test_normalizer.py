@@ -143,6 +143,24 @@ def test_owner_is_enriched_from_matching_registered_person():
     assert [person["full_name"] for person in persons].count("\u0418\u0432\u0430\u043d\u043e\u0432 \u0418\u0432\u0430\u043d \u0418\u0432\u0430\u043d\u043e\u0432\u0438\u0447") == 1
 
 
+def test_duplicate_registered_person_is_emitted_once():
+    response = _make_response()
+    duplicate = {
+        "full_name": "Амбарцумян Арианна Арменаковна",
+        "birthday_date": "01.02.1990",
+        "registration_status": "registered",
+    }
+    response["extracted_data"]["page_2"] = {
+        "registered_persons_constantly": {"persons": [duplicate, dict(duplicate)]}
+    }
+
+    persons = normalize(response)["persons"]
+
+    assert [person["full_name"] for person in persons].count(
+        "Амбарцумян Арианна Арменаковна"
+    ) == 1
+
+
 def test_compound_surname_is_kept_in_structured_name():
     response = _make_response(owners=[{
         "full_name": "\u0414\u0435 \u0411\u0443\u0430\u0440\u0434 \u0413\u0430\u043b\u0438\u043d\u0430 \u041f\u0435\u0442\u0440\u043e\u0432\u043d\u0430",

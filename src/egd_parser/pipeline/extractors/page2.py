@@ -2,7 +2,6 @@ from egd_parser.domain.models.ocr import OCRPageResult
 from egd_parser.pipeline.extractors.page2_benefits import extract_page2_benefits
 from egd_parser.pipeline.extractors.page2_core import has_resident_table_continuation
 from egd_parser.pipeline.extractors.page2_residents import (
-    extract_page2_residents,
     extract_page2_residents_with_trace,
     extract_registered_persons_temporary,
 )
@@ -14,9 +13,13 @@ def extract_page2(ocr_results: list[OCRPageResult]) -> dict:
     second_page_index = next((index for index, page in enumerate(ordered_pages) if page.page_number == 2), None)
     if second_page_index is not None:
         resident_pages.append(ordered_pages[second_page_index])
+        reached_temporary_section = has_temporary_resident_section(ordered_pages[second_page_index])
         for page in ordered_pages[second_page_index + 1:]:
+            if reached_temporary_section:
+                break
             if has_resident_table_continuation(page):
                 resident_pages.append(page)
+                reached_temporary_section = has_temporary_resident_section(page)
             else:
                 break
 
@@ -38,7 +41,9 @@ def extract_page2(ocr_results: list[OCRPageResult]) -> dict:
             },
         }
 
-    joined_text = "\n".join(page.text for page in resident_pages)
+    # Permanent residents stop at the temporary-registration section, while the
+    # temporary extractor still needs that section and its continuation pages.
+    joined_text = "\n".join(page.text for page in ordered_pages[second_page_index:])
     residents_block, residents_trace = extract_page2_residents_with_trace(resident_pages)
 
     return {
@@ -49,3 +54,12 @@ def extract_page2(ocr_results: list[OCRPageResult]) -> dict:
             "registered_persons_constantly": residents_trace,
         },
     }
+
+
+def has_temporary_resident_section(page: OCRPageResult) -> bool:
+    normalized = " ".join(page.text.lower().replace("ё", "е").split())
+    return (
+        "кроме того" in normalized
+        and "зарегистрированы" in normalized
+        and "месту пребывания" in normalized
+    )

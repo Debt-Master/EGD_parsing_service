@@ -130,6 +130,7 @@ def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
     }
     if page_1.get("primary_tenant"):
         primary_roles.add(_canonical_name(page_1["primary_tenant"]))
+    emitted_names = set(primary_roles)
 
     passport = page_1.get("passport", {})
     owners = page_1.get("owners", [])
@@ -179,8 +180,10 @@ def _normalize_persons(data: dict[str, Any]) -> list[dict[str, Any]]:
             # An owner/tenant is already represented by its primary legal role and
             # enriched from this page-2 row above.  Do not emit a second person that
             # downstream systems could incorrectly treat as another debtor.
-            if _canonical_name(p.get("full_name")) in primary_roles:
+            canonical_name = _canonical_name(p.get("full_name"))
+            if not canonical_name or canonical_name in emitted_names:
                 continue
+            emitted_names.add(canonical_name)
             departure = _normalize_departure(p.get("departure"))
             persons.append({
                 "role": role,

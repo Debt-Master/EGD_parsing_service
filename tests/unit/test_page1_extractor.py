@@ -129,6 +129,44 @@ def test_extract_page1_normalizes_split_street_prefix() -> None:
     assert address["apartment"] == "30"
 
 
+def test_extract_page1_repairs_managed_street_ocr_and_preserves_apartment_range() -> None:
+    text = """
+    Заявитель зарегистрирован по месту жительства:
+    ул. Донеская дом № 1 кв. 152-155
+    Прежнее наименование адреса:
+    Вид заселения:
+    социальный наем
+    """
+
+    address = extract_page1([OCRPageResult(page_number=1, text=text)])["page_1"]["property_address"]
+
+    assert address["street"] == "ул. Донецкая"
+    assert address["house"] == "1"
+    assert address["apartment"] == "152-155"
+
+
+def test_extract_page1_repairs_mixed_latin_in_street_and_owner_name() -> None:
+    text = """
+    Заявитель зарегистрирован по месту жительства:
+    ул. Новочеркасsкий бульвар дом № 9 кв. 111
+    Прежнее наименование адреса:
+    Вид заселения:
+    частная собственность
+    Ф. И. О. владельца права собственности
+    Доля в праве собственности, %
+    22,00
+    Лисянский Дмитрий Дмитrиеvич
+    на основании:
+    """
+
+    page_1 = extract_page1([OCRPageResult(page_number=1, text=text)])["page_1"]
+
+    assert page_1["property_address"]["street"] == "б-р Новочеркасский"
+    assert page_1["owners"] == [
+        {"full_name": "Лисянский Дмитрий Дмитриевич", "ownership_share": "22.00"}
+    ]
+
+
 def test_extract_passport_data_from_sample_text() -> None:
     text = """
     Паспортные данные:

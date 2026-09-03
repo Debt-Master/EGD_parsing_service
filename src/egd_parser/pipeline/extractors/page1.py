@@ -1,4 +1,5 @@
 import re
+from difflib import SequenceMatcher
 from typing import Iterable
 
 from egd_parser.domain.models.ocr import OCRPageResult
@@ -193,7 +194,9 @@ def extract_property_address(page: OCRPageResult) -> dict:
     house = search_token(parsed, r"дом\s*(?:№|ng|no)?\s*(?P<value>[\w/-]+)")
     building = search_token(parsed, r"кор(?:п|п\.|п:|:)?\s*(?P<value>[\w/-]+)")
     structure = search_token(parsed, r"строение\s*(?P<value>[\w/-]+)")
-    apartment = search_token(parsed, r"кв\.?\s*(?P<value>\d+)")
+    apartment = search_token(parsed, r"кв\.?\s*(?P<value>\d+(?:\s*[-–—]\s*\d+)?)")
+    if apartment:
+        apartment = re.sub(r"\s*[-–—]\s*", "-", apartment)
     leading_number = find_address_leading_number(lines)
     if apartment is None and leading_number:
         apartment = leading_number
@@ -204,7 +207,7 @@ def extract_property_address(page: OCRPageResult) -> dict:
     if house == "N":
         house = None
 
-    street = normalize_street(street_line)
+    street = resolve_street_by_reference(normalize_street(street_line), house)
     house, building = resolve_property_address_by_reference(street, house, building)
     block = "\n".join(lines)
 
@@ -249,6 +252,47 @@ def resolve_property_address_by_reference(
         return candidates[0].house, candidates[0].building
 
     return house, building
+
+
+def resolve_street_by_reference(street: str, house: str | None) -> str:
+    """Repair small OCR errors using the managed-building reference."""
+    candidates = [
+        entry.street
+        for entry in MANAGED_BUILDINGS
+        if not house or canonicalize_building_token(entry.house) == canonicalize_building_token(house)
+    ]
+    candidates = list(dict.fromkeys(candidates))
+    source_key = canonicalize_street_name(street)
+    if not source_key or not candidates:
+        return street
+
+    ranked = sorted(
+        (
+            SequenceMatcher(None, source_key, canonicalize_street_name(candidate)).ratio(),
+            candidate,
+        )
+        for candidate in candidates
+    )
+    best_score, best_street = ranked[-1]
+    second_score = ranked[-2][0] if len(ranked) > 1 else 0.0
+    if best_score < 0.86 or best_score - second_score < 0.05:
+        return street
+    return normalize_street(best_street)
+
+
+def canonicalize_street_name(value: str) -> str:
+    normalized = normalize_cyrillic_lookalikes(value).lower().replace("ё", "е")
+    normalized = re.sub(
+        r"\b(?:улица|ул|бульвар|б-р|проспект|просп|пр-кт|переулок|пер|проезд|пр|шоссе|ш)\b\.?",
+        " ",
+        normalized,
+    )
+    normalized = re.sub(r"[^0-9а-я]+", " ", normalized)
+    return normalize_whitespace(normalized)
+
+
+def canonicalize_building_token(value: str) -> str:
+    return re.sub(r"[^0-9а-я]+", "", value.lower().replace("ё", "е"))
 
 
 def extract_management_company(text: str) -> dict:
@@ -359,6 +403,7 @@ def extract_owners(text: str, settlement_type: str | None = None) -> list[dict]:
             )
     if not lines:
         return owners
+    lines = [normalize_cyrillic_lookalikes(line) for line in lines]
 
     for line in lines:
         match = re.match(
@@ -574,6 +619,12 @@ def normalize_cyrillic_lookalikes(value: str) -> str:
             "x": "х",
             "Y": "У",
             "y": "у",
+            "S": "С",
+            "s": "с",
+            "R": "Р",
+            "r": "р",
+            "V": "В",
+            "v": "в",
         }
     )
     return value.translate(mapping)
