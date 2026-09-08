@@ -35,6 +35,26 @@ def _make_response(**page_1_overrides):
     }
 
 
+def test_confirmed_name_correction_enriches_owner_without_duplicate():
+    from egd_parser.pipeline.runner import normalize_registered_full_name
+
+    response = _make_response(passport={}, owners=[{
+        "full_name": "Смирнов Дмитрий Владимирович", "ownership_share": "37.50",
+    }])
+    response["extracted_data"]["page_2"] = {
+        "registered_persons_constantly": {"persons": [{
+            "full_name": normalize_registered_full_name("Смирнов Дмитрий Владимиробич"),
+            "birthday_date": "03.12.1972", "registration_status": "registered",
+            "passport": {"document_type": "паспорт", "series": "00 00", "number": "123456"},
+        }]}
+    }
+    persons = normalize(response)["persons"]
+    assert len(persons) == 1
+    assert persons[0]["role"] == "owner"
+    assert persons[0]["birthday_date"] == "03.12.1972"
+    assert persons[0]["identity"]["number"] == "123456"
+
+
 def test_administrative_okrug_promoted_to_top_level():
     out = normalize(_make_response())
     assert out["administrative_okrug"] == "ЦАО"

@@ -12,6 +12,9 @@ def test_normalize_registered_full_name_fixes_broken_patronymic_suffixes() -> No
 
 
 def test_normalize_registered_full_name_applies_confirmed_overrides() -> None:
+    assert normalize_registered_full_name("Михо Елена тольевна") == "Михо Елена Анатольевна"
+    assert normalize_registered_full_name("Смирнов Дмитрий Владимиробич") == "Смирнов Дмитрий Владимирович"
+    assert normalize_registered_full_name("Шарун Алиса гдановна") == "Шарун Алиса Богдановна"
     assert normalize_registered_full_name("Мосын у гин") == "Сутугин Павел Михайлович"
     assert normalize_registered_full_name("Амбарцумян Роберт Арменакоб") == "Амбарцумян Арианна Арменаковна"
     assert normalize_registered_full_name("Григорян Айрин") == "Григорян Айрин Романовна"

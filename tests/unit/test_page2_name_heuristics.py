@@ -7,7 +7,7 @@ from egd_parser.pipeline.extractors.page2_names import (
     normalize_name_token_fragment,
 )
 from egd_parser.pipeline.extractors.page2_core import parse_resident_row_words
-from egd_parser.pipeline.extractors.page2_table import extract_name_from_name_column
+from egd_parser.pipeline.extractors.page2_table import extract_name_from_name_column, find_date_anchors_in_column
 
 
 def make_word(text: str, left: int, top: int, width: int = 120, height: int = 24) -> OCRWord:
@@ -20,6 +20,16 @@ def make_word(text: str, left: int, top: int, width: int = 120, height: int = 24
 
 def test_normalize_name_token_fragment_handles_mixed_script_patronymic() -> None:
     assert normalize_name_token_fragment("Дмiтrиevич") == "Дмитриевич"
+
+
+def test_birth_date_anchor_accepts_box_joined_with_name() -> None:
+    joined = make_word("Мухина Екатери- 17.05.1974", left=243, top=200, width=536)
+    outside = make_word("01.01.2000", left=900, top=250, width=150)
+    left_outside = make_word("01.01.2000", left=100, top=300, width=150)
+    name_only = make_word("Екатерина", left=550, top=350)
+    assert find_date_anchors_in_column(
+        [joined, outside, left_outside, name_only], {"left": 540, "right": 800}
+    ) == [joined]
 
 
 def test_normalize_name_token_fragment_handles_short_latin_tail() -> None:

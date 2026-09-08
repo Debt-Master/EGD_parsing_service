@@ -504,7 +504,9 @@ def find_date_anchors_in_column(words: list, column: dict) -> list:
     anchors = []
     seen_tops: list[int] = []
     for word in sorted(words, key=lambda item: (item.bbox.top, item.bbox.left)):
-        if word_center_x(word) < column["left"] or word_center_x(word) >= column["right"]:
+        # OCR may join the name and birth date into one wide box whose centre
+        # lies in the name column. Keep it if it overlaps the date column.
+        if word.bbox.left >= column["right"] or word.bbox.left + word.bbox.width <= column["left"]:
             continue
         if not DATE_RE.search(word.text):
             continue
