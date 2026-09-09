@@ -258,7 +258,11 @@ def resolve_property_address_by_reference(
     building: str | None,
     managed_buildings: Sequence[ManagedBuilding] | None = None,
 ) -> tuple[str | None, str | None]:
-    if not street:
+    # The reference may confirm and canonicalize an OCR value, but it must not
+    # invent a house number that is absent from the source document. Even a
+    # single managed building on the recognized street is not enough evidence
+    # for a document that can be used in court.
+    if not street or not house:
         return house, building
 
     exact_match = find_building_by_address(street, house, building, buildings=managed_buildings)
@@ -273,14 +277,6 @@ def resolve_property_address_by_reference(
         by_house = [candidate for candidate in candidates if candidate.house == house]
         if len(by_house) == 1:
             return by_house[0].house, by_house[0].building
-
-    if building and not house:
-        by_building = [candidate for candidate in candidates if (candidate.building or "") == building]
-        if len(by_building) == 1:
-            return by_building[0].house, by_building[0].building
-
-    if not house and not building and len(candidates) == 1:
-        return candidates[0].house, candidates[0].building
 
     return house, building
 

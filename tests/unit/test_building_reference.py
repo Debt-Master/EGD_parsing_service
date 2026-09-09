@@ -64,6 +64,27 @@ def test_db_realty_reference_does_not_guess_another_house() -> None:
     assert address["__reference__"]["matched"] is False
 
 
+def test_db_realty_reference_does_not_supply_missing_house() -> None:
+    reference = parse_building_reference(
+        '[{"street":"Шумкина","house":"13","kladr":"01770000000000000"}]'
+    )
+    text = """
+    Заявитель зарегистрирован по месту жительства:
+    ул. Шумкина кв. 10
+    Прежнее наименование адреса:
+    Вид заселения:
+    частная собственность
+    """
+
+    address = extract_page1(
+        [OCRPageResult(page_number=1, text=text)], reference
+    )["page_1"]["property_address"]
+
+    assert address["house"] is None
+    assert address["apartment"] == "10"
+    assert address["__reference__"]["matched"] is False
+
+
 def test_db_realty_reference_requires_unique_building_match() -> None:
     reference = parse_building_reference("""[
       {"street":"Подольская","house":"27","building":"1"},
