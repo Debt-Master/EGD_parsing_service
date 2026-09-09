@@ -17,7 +17,8 @@ class BlockingJobService(JobService):
         self.active_parses = 0
         self.max_active_parses = 0
 
-    def _parse_document(self, file: UploadedDocument) -> ParseResponse:
+    def _parse_document(self, file: UploadedDocument, managed_buildings=None) -> ParseResponse:
+        del managed_buildings
         with self._lock:
             self.active_parses += 1
             self.max_active_parses = max(self.max_active_parses, self.active_parses)
@@ -77,8 +78,14 @@ class WarmupRecordingParseService:
     def warmup(self) -> None:
         self.thread_ids.append(get_ident())
 
-    def run(self, filename: str, content: bytes, content_type: str | None = None) -> ParseResponse:
-        del content, content_type
+    def run(
+        self,
+        filename: str,
+        content: bytes,
+        content_type: str | None = None,
+        managed_buildings=None,
+    ) -> ParseResponse:
+        del content, content_type, managed_buildings
         self.thread_ids.append(get_ident())
         return ParseResponse(filename=filename, pages=1, extracted_data={})
 

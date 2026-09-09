@@ -22,6 +22,7 @@ from egd_parser.api.schemas.response import (
 from egd_parser.application.errors import ParserError
 from egd_parser.application.services.job_models import JobRecord, UploadedDocument
 from egd_parser.application.services.parse_document import ParseDocumentService
+from egd_parser.domain.reference.buildings import ManagedBuilding
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 class _JobTask:
     job_id: str
     files: list[UploadedDocument]
+    managed_buildings: list[ManagedBuilding] | None = None
 
 
 @dataclass(slots=True)
@@ -153,11 +155,17 @@ class JobService:
         self._worker = Thread(target=self._worker_loop, name="egd-parser-job-worker", daemon=True)
         self._worker.start()
 
-    def enqueue_job(self, files: list[UploadedDocument], *, callback_url: str | None = None) -> JobStatusResponse:
+    def enqueue_job(
+        self,
+        files: list[UploadedDocument],
+        *,
+        callback_url: str | None = None,
+        managed_buildings: list[ManagedBuilding] | None = None,
+    ) -> JobStatusResponse:
         record = self.store.create_job(files, callback_url=callback_url)
         if self.upload_store is not None:
             self.upload_store.save_job_files(record.job_id, files)
-        self._tasks.put(_JobTask(record.job_id, files))
+        self._tasks.put(_JobTask(record.job_id, files, managed_buildings))
         return self._to_status_response(record)
 
     def list_jobs(self, limit: int = 100) -> JobListResponse:
@@ -242,7 +250,7 @@ class JobService:
             task = self._tasks.get()
             try:
                 if isinstance(task, _JobTask):
-                    self._process_job(task.job_id, task.files)
+                    self._process_job(task.job_id, task.files, task.managed_buildings)
                 elif isinstance(task, _WarmupTask):
                     try:
                         self._get_parse_service().warmup()
@@ -263,11 +271,16 @@ class JobService:
             self._parse_service = ParseDocumentService()
         return self._parse_service
 
-    def _process_job(self, job_id: str, files: list[UploadedDocument]) -> None:
+    def _process_job(
+        self,
+        job_id: str,
+        files: list[UploadedDocument],
+        managed_buildings: list[ManagedBuilding] | None = None,
+    ) -> None:
         try:
             self.store.mark_running(job_id)
             for file in files:
-                result = self._parse_job_file(job_id, file)
+                result = self._parse_job_file(job_id, file, managed_buildings)
                 self.store.store_file_result(job_id, result)
             self.store.mark_completed(job_id)
         except ParserError as exc:
@@ -277,9 +290,14 @@ class JobService:
             self.store.mark_failed(job_id, str(exc), "INTERNAL_ERROR")
         self._send_callback(job_id)
 
-    def _parse_job_file(self, job_id: str, file: UploadedDocument) -> JobFileResult:
+    def _parse_job_file(
+        self,
+        job_id: str,
+        file: UploadedDocument,
+        managed_buildings: list[ManagedBuilding] | None = None,
+    ) -> JobFileResult:
         try:
-            response = self._parse_document(file)
+            response = self._parse_document(file, managed_buildings)
             return JobFileResult(
                 filename=response.filename,
                 status="completed",
@@ -319,7 +337,9 @@ class JobService:
                 first = next((f for f in record.files if f.status == "completed" and f.extracted_data), None)
 
             if first is not None:
-                to_dict = lambda v: v.model_dump() if hasattr(v, "model_dump") else v
+                def to_dict(value):
+                    return value.model_dump() if hasattr(value, "model_dump") else value
+
                 raw = {
                     "filename": first.filename,
                     "extracted_data": to_dict(first.extracted_data),
@@ -351,12 +371,17 @@ class JobService:
         except Exception:  # noqa: BLE001
             logger.exception("Callback to %s failed for job %s", record.callback_url, job_id)
 
-    def _parse_document(self, file: UploadedDocument) -> ParseResponse:
+    def _parse_document(
+        self,
+        file: UploadedDocument,
+        managed_buildings: list[ManagedBuilding] | None = None,
+    ) -> ParseResponse:
         with self._parse_lock:
             return self._get_parse_service().run(
                 filename=file.filename,
                 content=file.content,
                 content_type=file.content_type,
+                managed_buildings=managed_buildings,
             )
 
     @staticmethod

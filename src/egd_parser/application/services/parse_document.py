@@ -1,6 +1,7 @@
 from egd_parser.api.schemas.response import ParseResponse
 from egd_parser.application.errors import EmptyDocumentError, UnsupportedDocumentError
 from egd_parser.domain.models.document import ParsedDocument
+from egd_parser.domain.reference.buildings import ManagedBuilding
 from egd_parser.pipeline.runner import PipelineRunner
 
 
@@ -13,11 +14,21 @@ class ParseDocumentService:
             self.pipeline = PipelineRunner()
         self.pipeline.ocr.warmup()
 
-    def run(self, filename: str, content: bytes, content_type: str | None = None) -> ParseResponse:
+    def run(
+        self,
+        filename: str,
+        content: bytes,
+        content_type: str | None = None,
+        managed_buildings: list[ManagedBuilding] | None = None,
+    ) -> ParseResponse:
         self._validate_pdf(filename, content, content_type)
         if self.pipeline is None:
             self.pipeline = PipelineRunner()
-        document = self.pipeline.run(filename=filename, content=content)
+        document = self.pipeline.run(
+            filename=filename,
+            content=content,
+            managed_buildings=managed_buildings,
+        )
         return self._to_response(document)
 
     @staticmethod

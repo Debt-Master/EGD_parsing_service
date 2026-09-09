@@ -17,7 +17,8 @@ def test_jobs_endpoints_lifecycle(monkeypatch) -> None:
         failed_files=0,
     )
 
-    def fake_enqueue_job(self, files, *, callback_url=None):
+    def fake_enqueue_job(self, files, *, callback_url=None, managed_buildings=None):
+        del callback_url, managed_buildings
         return fixed_job
 
     def fake_get_status(self, job_id):

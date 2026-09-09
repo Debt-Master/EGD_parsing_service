@@ -48,6 +48,8 @@
 - `POST /api/v1/parse`
 - `POST /api/v1/parse/normalized` — разбор в единый формат для callback/backend
 - multipart field: `file`
+- optional multipart field: `address_reference` — JSON-снимок канонических МКД из
+  `db.realty`/`db.address`. При его передаче адрес обязан однозначно совпасть со справочником.
 
 Асинхронные jobs:
 
@@ -117,6 +119,7 @@ curl -X POST \
 ```bash
 curl -X POST \
   -F "files=@/path/to/1.pdf" \
+  -F 'address_reference={"buildings":[{"reference_id":"…","kladr":"…","street":"Новочеркасский","house":"9","building":null,"structure":null}]}' \
   -F "files=@/path/to/2.pdf" \
   http://localhost:8000/api/v1/jobs
 ```

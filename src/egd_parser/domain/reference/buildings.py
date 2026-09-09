@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Sequence
 
 
 @dataclass(frozen=True)
@@ -12,6 +13,10 @@ class ManagedBuilding:
     building: str | None
     area_sq_m: str
     management_start_date: str
+    structure: str | None = None
+    kladr: str | None = None
+    reference_id: str | None = None
+    reference_version: str | None = None
 
 
 MANAGED_BUILDINGS = [
@@ -67,30 +72,45 @@ def canonicalize_building_address_part(value: str) -> str:
     return normalized.strip()
 
 
-def find_buildings_by_street(street: str | None) -> list[ManagedBuilding]:
+def find_buildings_by_street(
+    street: str | None,
+    buildings: Sequence[ManagedBuilding] | None = None,
+) -> list[ManagedBuilding]:
     if not street:
         return []
     street_key = canonicalize_building_address_part(street)
+    source = buildings if buildings is not None else MANAGED_BUILDINGS
     return [
         building
-        for building in MANAGED_BUILDINGS
+        for building in source
         if canonicalize_building_address_part(building.street) == street_key
     ]
 
 
-def find_building_by_address(street: str | None, house: str | None, building: str | None = None) -> ManagedBuilding | None:
+def find_building_by_address(
+    street: str | None,
+    house: str | None,
+    building: str | None = None,
+    structure: str | None = None,
+    buildings: Sequence[ManagedBuilding] | None = None,
+) -> ManagedBuilding | None:
     if not street or not house:
         return None
     street_key = canonicalize_building_address_part(street)
     house_key = canonicalize_building_address_part(house)
     building_key = canonicalize_building_address_part(building) if building else None
+    structure_key = canonicalize_building_address_part(structure) if structure else None
 
-    for entry in MANAGED_BUILDINGS:
+    source = buildings if buildings is not None else MANAGED_BUILDINGS
+    matches: list[ManagedBuilding] = []
+    for entry in source:
         if canonicalize_building_address_part(entry.street) != street_key:
             continue
         if canonicalize_building_address_part(entry.house) != house_key:
             continue
         if building_key and canonicalize_building_address_part(entry.building or "") != building_key:
             continue
-        return entry
-    return None
+        if structure_key and canonicalize_building_address_part(entry.structure or "") != structure_key:
+            continue
+        matches.append(entry)
+    return matches[0] if len(matches) == 1 else None

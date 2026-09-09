@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
+from egd_parser.application.errors import PropertyAddressNotInReferenceError
 from egd_parser.domain.models.ocr import OCRPageResult
 from egd_parser.domain.models.page import PageImage
+from egd_parser.domain.reference.buildings import ManagedBuilding
 from egd_parser.pipeline import runner as runner_module
 from egd_parser.pipeline.runner import PipelineRunner
 
@@ -46,7 +50,11 @@ def test_pipeline_runner_ocr_pages_sequentially(monkeypatch) -> None:
     pipeline.renderer = renderer
     pipeline.ocr = ocr
 
-    monkeypatch.setattr(runner_module, "extract_page1", lambda results: {"page_1": {}})
+    monkeypatch.setattr(
+        runner_module,
+        "extract_page1",
+        lambda results, managed_buildings=None: {"page_1": {}},
+    )
     monkeypatch.setattr(
         runner_module,
         "extract_page2",
@@ -64,3 +72,36 @@ def test_pipeline_runner_ocr_pages_sequentially(monkeypatch) -> None:
     assert ocr.batch_sizes == [1, 1]
     assert document.page_count == 2
     assert document.metadata["page_images"] == ["/tmp/page-1.png", "/tmp/page-2.png"]
+
+
+def test_pipeline_stops_before_import_callback_when_address_is_not_in_db_realty(
+    monkeypatch,
+) -> None:
+    pipeline = PipelineRunner.__new__(PipelineRunner)
+    pipeline.settings = type("Settings", (), {"ocr_engine": "mock"})()
+    pipeline.renderer = StreamingRenderer()
+    pipeline.ocr = RecordingOCR()
+    monkeypatch.setattr(
+        runner_module,
+        "extract_page1",
+        lambda results, managed_buildings=None: {
+            "page_1": {
+                "property_address": {
+                    "raw": "ул. Неизвестная, дом 1, кв. 2",
+                    "street": "ул. Неизвестная",
+                    "house": "1",
+                    "apartment": "2",
+                    "__reference__": {"mode": "db_realty", "matched": False},
+                }
+            }
+        },
+    )
+    reference = [
+        ManagedBuilding("", "Донецкая", "1", None, "", "")
+    ]
+
+    with pytest.raises(PropertyAddressNotInReferenceError) as caught:
+        pipeline.run("sample.pdf", b"%PDF-1.3", reference)
+
+    assert caught.value.code == "PROPERTY_ADDRESS_NOT_IN_REFERENCE"
+    assert "Неизвестная" in caught.value.message

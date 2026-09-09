@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 
 from egd_parser.api.schemas.response import (
@@ -14,6 +14,8 @@ from egd_parser.api.schemas.response import (
 )
 from egd_parser.application.services.job_models import UploadedDocument
 from egd_parser.application.services.job_service import JobService
+from egd_parser.api.building_reference import parse_building_reference
+from egd_parser.application.errors import ParserError
 
 router = APIRouter(tags=["jobs"])
 
@@ -26,6 +28,7 @@ def get_job_service(request: Request) -> JobService:
 async def create_job(
     request: Request,
     files: list[UploadFile] = File(...),
+    address_reference: str | None = Form(default=None),
     callback: Optional[str] = Query(default=None, description="Callback URL for POST result"),
 ) -> JobAcceptedResponse:
     if not files:
@@ -42,7 +45,15 @@ async def create_job(
             )
         )
 
-    job = get_job_service(request).enqueue_job(uploaded_documents, callback_url=callback)
+    try:
+        managed_buildings = parse_building_reference(address_reference)
+    except ParserError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.to_dict()) from exc
+    job = get_job_service(request).enqueue_job(
+        uploaded_documents,
+        callback_url=callback,
+        managed_buildings=managed_buildings,
+    )
     return JobAcceptedResponse(**job.model_dump())
 
 

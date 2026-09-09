@@ -1,10 +1,11 @@
 import re
 from difflib import SequenceMatcher
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from egd_parser.domain.models.ocr import OCRPageResult
 from egd_parser.domain.reference.buildings import (
     MANAGED_BUILDINGS,
+    ManagedBuilding,
     find_building_by_address,
     find_buildings_by_street,
 )
@@ -41,7 +42,10 @@ OWNER_RE = re.compile(
 )
 
 
-def extract_page1(ocr_results: list[OCRPageResult]) -> dict:
+def extract_page1(
+    ocr_results: list[OCRPageResult],
+    managed_buildings: Sequence[ManagedBuilding] | None = None,
+) -> dict:
     first_page = next((page for page in ocr_results if page.page_number == 1), None)
     if first_page is None:
         return {"document_type": "egd", "page_1": {}}
@@ -54,7 +58,7 @@ def extract_page1(ocr_results: list[OCRPageResult]) -> dict:
         "administrative_okrug": extract_administrative_okrug(text),
         "district": extract_district(text),
         "passport": extract_passport_data(text),
-        "property_address": extract_property_address(first_page),
+        "property_address": extract_property_address(first_page, managed_buildings),
         "management_company": extract_management_company(text),
         "settlement_type": settlement_type,
         "owners": extract_owners(text, settlement_type),
@@ -161,7 +165,10 @@ def extract_passport_data(text: str) -> dict:
     return result if any(value for key, value in result.items() if key != "raw") else {}
 
 
-def extract_property_address(page: OCRPageResult) -> dict:
+def extract_property_address(
+    page: OCRPageResult,
+    managed_buildings: Sequence[ManagedBuilding] | None = None,
+) -> dict:
     text = page.text
     all_lines = cleaned_lines(text)
     address_anchor = find_line_index(
@@ -207,11 +214,25 @@ def extract_property_address(page: OCRPageResult) -> dict:
     if house == "N":
         house = None
 
-    street = resolve_street_by_reference(normalize_street(street_line), house)
-    house, building = resolve_property_address_by_reference(street, house, building)
+    street = resolve_street_by_reference(normalize_street(street_line), house, managed_buildings)
+    reference_match = find_building_by_address(
+        street, house, building, structure, managed_buildings
+    )
+    if reference_match:
+        street = reference_match.street
+        house = reference_match.house
+        building = reference_match.building
+        structure = reference_match.structure
+    else:
+        house, building = resolve_property_address_by_reference(
+            street, house, building, managed_buildings
+        )
+        reference_match = find_building_by_address(
+            street, house, building, structure, managed_buildings
+        )
     block = "\n".join(lines)
 
-    return {
+    result = {
         "raw": normalize_whitespace(block),
         "full": compose_address(street, house, building, structure, apartment),
         "street": street,
@@ -220,21 +241,31 @@ def extract_property_address(page: OCRPageResult) -> dict:
         "structure": structure,
         "apartment": apartment,
     }
+    if managed_buildings is not None:
+        result["__reference__"] = {
+            "mode": "db_realty",
+            "matched": reference_match is not None,
+            "kladr": reference_match.kladr if reference_match else None,
+            "reference_id": reference_match.reference_id if reference_match else None,
+            "version": reference_match.reference_version if reference_match else None,
+        }
+    return result
 
 
 def resolve_property_address_by_reference(
     street: str | None,
     house: str | None,
     building: str | None,
+    managed_buildings: Sequence[ManagedBuilding] | None = None,
 ) -> tuple[str | None, str | None]:
     if not street:
         return house, building
 
-    exact_match = find_building_by_address(street, house, building)
+    exact_match = find_building_by_address(street, house, building, buildings=managed_buildings)
     if exact_match:
         return exact_match.house, exact_match.building
 
-    candidates = find_buildings_by_street(street)
+    candidates = find_buildings_by_street(street, managed_buildings)
     if not candidates:
         return house, building
 
@@ -254,11 +285,16 @@ def resolve_property_address_by_reference(
     return house, building
 
 
-def resolve_street_by_reference(street: str, house: str | None) -> str:
+def resolve_street_by_reference(
+    street: str,
+    house: str | None,
+    managed_buildings: Sequence[ManagedBuilding] | None = None,
+) -> str:
     """Repair small OCR errors using the managed-building reference."""
+    source = managed_buildings if managed_buildings is not None else MANAGED_BUILDINGS
     candidates = [
         entry.street
-        for entry in MANAGED_BUILDINGS
+        for entry in source
         if not house or canonicalize_building_token(entry.house) == canonicalize_building_token(house)
     ]
     candidates = list(dict.fromkeys(candidates))

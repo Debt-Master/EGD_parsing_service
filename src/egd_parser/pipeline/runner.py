@@ -1,6 +1,8 @@
 import re
 
+from egd_parser.application.errors import PropertyAddressNotInReferenceError
 from egd_parser.domain.models.document import ParsedDocument
+from egd_parser.domain.reference.buildings import ManagedBuilding
 from egd_parser.infrastructure.ocr.factory import create_ocr_engine
 from egd_parser.infrastructure.pdf.poppler_renderer import PopplerPDFRenderer
 from egd_parser.infrastructure.settings import get_settings
@@ -35,7 +37,12 @@ class PipelineRunner:
         self.renderer = PopplerPDFRenderer()
         self.ocr = create_ocr_engine(self.settings)
 
-    def run(self, filename: str, content: bytes) -> ParsedDocument:
+    def run(
+        self,
+        filename: str,
+        content: bytes,
+        managed_buildings: list[ManagedBuilding] | None = None,
+    ) -> ParsedDocument:
         classified_pages = []
         ocr_results = []
         for page in self.renderer.render_iter(filename=filename, content=content):
@@ -44,7 +51,14 @@ class PipelineRunner:
             classified_pages.append(classified_page)
             ocr_results.extend(self.ocr.recognize([classified_page]))
 
-        page1_data = extract_page1(ocr_results)
+        page1_data = extract_page1(ocr_results, managed_buildings)
+        raw_property_address = page1_data.get("page_1", {}).get("property_address", {})
+        address_reference = raw_property_address.pop(
+            "__reference__",
+            {"mode": "bundled", "matched": None},
+        )
+        if managed_buildings is not None and not address_reference.get("matched"):
+            raise PropertyAddressNotInReferenceError(raw_property_address)
         page2_data = extract_page2(ocr_results)
         page2_data["registered_persons_constantly"] = apply_row_reocr_fallback(
             page2_data.get("registered_persons_constantly", {}),
@@ -58,6 +72,7 @@ class PipelineRunner:
         normalized_data = normalize_dates(extracted_data)
         warnings = collect_required_field_warnings(normalized_data)
         extraction_trace = build_extraction_trace(normalized_data, page2_data)
+        extraction_trace["property_address_reference"] = address_reference
 
         return ParsedDocument(
             filename=filename,
